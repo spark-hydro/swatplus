@@ -60,7 +60,7 @@ if (UNIX)
             if (NOT ("${os_id}" STREQUAL "Arch" OR 
                      "${os_like}" MATCHES ".*arch.*" OR
                      "${os_id}" STREQUAL "fedora" ))
-                link_libraries("-static")
+                # link_libraries("-static")
             endif()
         endif()
     endif()
