@@ -5,6 +5,7 @@
       use maximum_data_module
       use calibration_data_module
       use hru_module
+      use mf6swatp_module
 
       implicit none
       
@@ -36,6 +37,8 @@
      &          "    Program reading . . . executing",/)
       
       open (888,file="erosion.txt",recl = 1500)
+
+      call mf6swatp_initialize_defaults() !spark
       
       call proc_bsn   
       call proc_date_time

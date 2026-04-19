@@ -44,6 +44,7 @@
                   basin_res_pest_output, basin_reservoir_output, basin_sdchannel_output, cs_balance, &
                   lsu_output, salt_balance, hyddep_output, recall_salt, recall_cs, soil_nutcarb_write, &
                   soil_carbvar_write
+      external :: mf6swatp_day_exchange
 
       real, dimension(time%step) :: hyd_flo     !flow hydrograph
       integer :: in = 0               !              | 
@@ -304,7 +305,11 @@
             call ru_control
             if (ob(icmd)%rcv_tot > 0) call hyddep_output
 
-          case ("gwflow")   ! gwflow
+          case ("gwflow")
+            ! if (bsn_cc%mf6swatp == 1) then
+            !   call mf6swatp_day_exchange()   ! gwflow
+            ! end if
+
             call gwflow_simulate
             do i_mfl = 1,sp_ob%gwflow
               icmd = icmd + 1
