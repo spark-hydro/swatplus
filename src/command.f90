@@ -309,7 +309,8 @@
             ! if (bsn_cc%mf6swatp == 1) then
             !   call mf6swatp_day_exchange()   ! gwflow
             ! end if
-
+            write(*,*) "MF6SWATp: entered gwflow case"
+            call mf6swatp_day_exchange() !spark
             call gwflow_simulate
             do i_mfl = 1,sp_ob%gwflow
               icmd = icmd + 1
