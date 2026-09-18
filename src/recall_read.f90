@@ -128,8 +128,9 @@
       end do
         
       !! check if the org mineral has already been used in a previous recall object
-      do iprev = 1, irec
-        if (recall_db(irec)%org_min%name == recall_db(irec)%org_min%name) then
+      recall_db(irec)%iorg_min = irec
+      do iprev = 1, irec - 1
+        if (recall_db(iprev)%org_min%name == recall_db(irec)%org_min%name) then
           recall_db(irec)%iorg_min = iprev
           exit
         end if

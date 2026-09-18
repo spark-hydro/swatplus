@@ -73,6 +73,7 @@
       end_of_mo    = time%end_mo
 
       !! store initial values
+      res_rel_was_meas = .false.
       vol = wbody%flo
       nstep = 1
       wsa1 = wbody_wb%area_ha * 10000. !m2
@@ -251,6 +252,7 @@
                 ht2%flo = ht2%flo + recall(irel)%hd(1,time%yrs)%flo / nstep
               end select
               ht2%flo = max(0.,ht2%flo)
+              res_rel_was_meas = .true.
 
             case ("natlake")
                 !! Jose T | release as natural lake based on Doell (2003) formilation

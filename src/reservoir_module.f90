@@ -1,6 +1,8 @@
       module reservoir_module
-    
+
       implicit none
+
+      logical :: res_rel_was_meas = .false.  !flag: today's release for the current reservoir came from a "meas" (measured) action - skip lag smoothing for it
 
       real :: reactw = 0.             !mg pst        |amount of pesticide in reach that is lost through reactions
       real :: volatpst = 0.           !mg pst        |amount of pesticide lost from reach by volatilization

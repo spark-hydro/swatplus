@@ -139,18 +139,22 @@
                   !! Retrospective information -> Inflow and irrigation demand memory of the reservoir
 
           call res_hydro (jres, irel, pvol_m3, evol_m3)
-          
+
           !! new lag to smooth condition jumps (volume or month conditions)
-          alpha_up = Exp(-res_ob(jres)%lag_up)
-          alpha_down = Exp(-res_ob(jres)%lag_down)
-          !! lag outflow when flows are receding
-          if (res_ob(jres)%prev_flo < ht2%flo) then
-            ht2%flo = ht2%flo * alpha_up + res_ob(jres)%prev_flo * (1. - alpha_up)
-          else
-            ht2%flo = ht2%flo * alpha_down + res_ob(jres)%prev_flo * (1. - alpha_down)
+          !! skip smoothing when today's release came from a "meas" (measured) action -
+          !! forcing observed data should not be blended toward a fixed point with prev_flo
+          if (.not. res_rel_was_meas) then
+            alpha_up = Exp(-res_ob(jres)%lag_up)
+            alpha_down = Exp(-res_ob(jres)%lag_down)
+            !! lag outflow when flows are receding
+            if (res_ob(jres)%prev_flo < ht2%flo) then
+              ht2%flo = ht2%flo * alpha_up + res_ob(jres)%prev_flo * (1. - alpha_up)
+            else
+              ht2%flo = ht2%flo * alpha_down + res_ob(jres)%prev_flo * (1. - alpha_down)
+            end if
           end if
           res_ob(jres)%prev_flo = ht2%flo
-            
+
           call res_sediment
         else
           ictbl = res_dat(idat)%release                              !! Osvaldo
