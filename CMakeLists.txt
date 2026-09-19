@@ -90,8 +90,10 @@ elseif(WIN32)
         set(frelease        "/O")
         set(FFC             "ifx")
     elseif(CMAKE_Fortran_COMPILER_ID MATCHES GNU)
-        set(fdialect        "-cpp -fcheck=all -ffpe-trap=invalid,zero,overflow,underflow -fimplicit-none -ffree-line-length-none -fbacktrace -finit-local-zero -fno-unsafe-math-optimizations -frounding-math -fsignaling-nans")
-        set(fdebug          "-Wall ")
+        # Local patch (mf6swatp): debug diagnostics moved out of fdialect so Release runs untrapped, as on Linux.
+        # Underflow is not trapped: tiny denormal results (e.g. wq_semianalyt) are harmless in hydrology.
+        set(fdialect        "-cpp -fimplicit-none -ffree-line-length-none -fbacktrace -finit-local-zero -fno-unsafe-math-optimizations -frounding-math")
+        set(fdebug          "-Wall -fcheck=all -ffpe-trap=invalid,zero,overflow -fsignaling-nans")
         set(FFC             "gnu")
         set(frelease        "-O")
         link_libraries("-static")
