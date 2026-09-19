@@ -54,7 +54,7 @@ if (UNIX)
         # routines such as expf() internally raise benign FP flags. Keep only the dialect and the
         # semantic/numeric flags (-finit-local-zero, -frounding-math, …) on by default.
         set(fdialect        "-cpp -fimplicit-none -ffree-line-length-none -fbacktrace -finit-local-zero -fno-unsafe-math-optimizations -frounding-math")
-        set(fdebug          "-Wall -fcheck=all -ffpe-trap=invalid,zero,overflow,underflow -fsignaling-nans")
+        set(fdebug          "-Wall -fcheck=all -ffpe-trap=invalid,zero,overflow -fsignaling-nans")
         set(frelease        "-O")
         set(FFC             "gnu")
 
@@ -62,7 +62,7 @@ if (UNIX)
             # Check if the OS is not Arch Linux or is not based on Arch Linux and is not Fedpra based
             # For non-Arch and non-FedoraLinux based systems using gfortran (GNU), set the link_library static flag to build a static executable.")
             # For Arch Linux based and Fedora based systems using gfortran, omit the link_library static flagt to build a dynamic executable.")
-            if (NOT ("${os_id}" STREQUAL "Arch" OR
+            if (NOT ("${os_id}" STREQUAL "Arch" OR "${os_id}" STREQUAL "arch" OR
                      "${os_like}" MATCHES ".*arch.*" OR
                      "${os_id}" STREQUAL "fedora" ))
                 link_libraries("-static")
