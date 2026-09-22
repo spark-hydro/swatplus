@@ -59,7 +59,7 @@
       
       external :: actions, aqu_pest_output_init, basin_sw_init, calsoft_ave_output, calsoft_sum_output, &
                   cli_atmodep_time_control, cli_precip_control, climate_control, command, conditions, &
-                  mallo_control, xmon, sim_initday, wallo_control, mgt_newtillmix_cswat0
+                  mallo_control, xmon, sim_initday, wallo_control, mgt_newtillmix_cswat0, mf6swatp_day_exchange
 
       integer :: j = 0               !none          |counter
       integer :: julian_day = 0      !none          |counter
@@ -247,8 +247,10 @@
             end do
           end if
           
-          call command              !! command loop 
-          
+          call command              !! command loop
+
+          call mf6swatp_day_exchange   !! MF6SWATp: daily coupling hook (no-op unless enabled)
+
           ! reset base0 heat units and yr_skip at end of year for southern hemisphere
           ! near winter solstace (winter solstice is around June 22)
           if (time%day == 181) then
