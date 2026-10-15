@@ -153,6 +153,17 @@ if(EXISTS "${PROJECT_SOURCE_DIR}/src/main.f90.in")
     )
 endif()
 
+# mf6swatp: swat_initialize / swat_finish, split out of main.f90.in so the API
+# library (which has no main program) can use them. Needs the same
+# substitutions (@TODAY@, @SWAT_VERSION@, ...) as main.f90.in, so it is
+# generated the same way, after the string(TIMESTAMP) lines above.
+if(EXISTS "${PROJECT_SOURCE_DIR}/src/swat_control.f90.in")
+    configure_file(
+        "${PROJECT_SOURCE_DIR}/src/swat_control.f90.in"
+        "${PROJECT_SOURCE_DIR}/src/swat_control.f90"
+    )
+endif()
+
 if(EXISTS "${PROJECT_SOURCE_DIR}/ford.md.in")
     configure_file(
         "${PROJECT_SOURCE_DIR}/ford.md.in"
@@ -162,11 +173,42 @@ endif()
 
 
 file(GLOB sources src/*.f90)
+# mf6swatp: the API library's source list is taken before anything is removed
+# from the executable's. The library gets everything except main.f90 (a
+# library has no `program main`); the executable gets everything except the
+# API's own control surface, swatplus_bmi.f90, so it contains no API code.
+set(api_sources ${sources})
+list(REMOVE_ITEM api_sources "${PROJECT_SOURCE_DIR}/src/main.f90")
+list(REMOVE_ITEM sources "${PROJECT_SOURCE_DIR}/src/swatplus_bmi.f90")
 add_executable(${SWATPLUS_EXE} ${sources})
+# Each target's compiled .mod interface files need their own directory:
+# without this, two targets compiling the same source (the executable and
+# the API library below) both try to write e.g. aqu_pesticide_module.mod to
+# the same place, and Ninja refuses with "multiple rules generate X.mod".
+# This only moves where scratch .mod files land during compilation; it has
+# no effect on the compiled executable's behavior.
+set_target_properties(${SWATPLUS_EXE} PROPERTIES
+    Fortran_MODULE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/${SWATPLUS_EXE}.dir/mod"
+)
 
 #############################################################################
 # Install
 install(TARGETS ${SWATPLUS_EXE} DESTINATION RUNTIME DESTINATION ${PROJECT_SOURCE_DIR})
+
+
+#############################################################################
+# API shared library (mf6swatp, branch mf6swatp-api: SWAT+ as a callable
+# library, so it can be driven from Python the same way modflowapi drives
+# MF6). Sources: see api_sources above. Its control functions are in
+# src/swatplus_bmi.f90 (from step S4 of plan_swatplus_api.md). Left out of
+# `install()`: this project builds and runs straight out of build/Release or
+# build/Debug (setup.md), no `cmake --install` step.
+set(SWATPLUS_API_LIB "swatplus_api")
+add_library(${SWATPLUS_API_LIB} SHARED ${api_sources})
+set_target_properties(${SWATPLUS_API_LIB} PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
+    Fortran_MODULE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/${SWATPLUS_API_LIB}.dir/mod"
+)
 
 
 #############################################################################
@@ -205,6 +247,7 @@ message( "-- PROJECT_DIR           ${PROJECT_SOURCE_DIR}")
 message( "-- BINARY_DIR            ${PROJECT_BINARY_DIR}")
 message( "-- Install Prefix        ${CMAKE_INSTALL_PREFIX}")
 message( "-- Executable            ${SWATPLUS_EXE}, rev/tag: ${SWAT_VERSION}")
+message( "-- API library           ${SWATPLUS_API_LIB} (mf6swatp proof of concept, plan_swatplus_api.md)")
 message( "-- FORD project          ${PROJECT_SOURCE_DIR}/ford.md")
 message( "-- Test Data Dir         ${ref_dir}")
 message( "--  Abs Error            ${aerr}")

@@ -32,7 +32,12 @@
 !!    SWAT: std3, xmon, sim_initday, clicon, command
 !!    SWAT: writed, writem, tillmix
 
-!!    ~ ~ ~ ~ ~ ~ END SPECIFICATIONS ~ ~ ~ ~ ~ ~
+!!    MF6SWATp (S3, proof-of-concept for a SWAT+ API): the year/day loops
+!!    below are unchanged; each piece of work that used to be inline is now
+!!    its own subroutine (time_control_start, time_control_year_start,
+!!    time_control_day, time_control_year_end, time_control_finish), so the
+!!    API library can drive SWAT+ one day at a time later instead of only
+!!    running the whole loop at once. See plan_swatplus_api.md.
 
       use maximum_data_module
       use calibration_data_module
@@ -54,35 +59,70 @@
       use water_body_module
       use water_allocation_module
       !use reservoir_data_module
-      
+
       implicit none
-      
+
+      external :: actions, aqu_pest_output_init, basin_sw_init, calsoft_ave_output, calsoft_sum_output, &
+                  cli_atmodep_time_control, cli_precip_control, climate_control, command, conditions, &
+                  mallo_control, xmon, sim_initday, wallo_control, mgt_newtillmix_cswat0, mf6swatp_day_exchange
+      external :: time_control_start, time_control_year_start, time_control_day, &
+                  time_control_year_end, time_control_finish
+
+      integer :: julian_day = 0      !none          |counter
+      integer :: curyr = 0           !              |
+
+      call time_control_start
+
+      do curyr = 1, time%nbyr
+        call time_control_year_start (curyr)
+
+        do julian_day = time%day_start, time%day_end_yr      !! begin daily loop
+          call time_control_day (julian_day)
+        end do              !! end daily loop
+
+        call time_control_year_end
+      end do            !!     end annual loop
+
+      call time_control_finish
+
+      return
+      end subroutine time_control
+
+
+      subroutine time_control_start
+
+!!    MF6SWATp (S3): moved out of time_control, unchanged. One-time setup
+!!    before the year loop -- the API's initialize() calls this too.
+
+      use maximum_data_module
+      use calibration_data_module
+      use plant_data_module
+      use mgt_operations_module
+      use hru_module, only : hru, ihru, ipl, phubase, yr_skip
+      use plant_module
+      use soil_module
+      use time_module
+      use climate_module
+      use basin_module
+      use sd_channel_module
+      use hru_lte_module
+      use hydrograph_module
+      use output_landscape_module
+      use conditional_module
+      use constituent_mass_module
+      use output_ls_pesticide_module
+      use water_body_module
+      use water_allocation_module
+      !use reservoir_data_module
+
+      implicit none
+
       external :: actions, aqu_pest_output_init, basin_sw_init, calsoft_ave_output, calsoft_sum_output, &
                   cli_atmodep_time_control, cli_precip_control, climate_control, command, conditions, &
                   mallo_control, xmon, sim_initday, wallo_control, mgt_newtillmix_cswat0, mf6swatp_day_exchange
 
-      integer :: j = 0               !none          |counter
-      integer :: julian_day = 0      !none          |counter
-      integer :: id = 0              !              |
-      integer :: isched = 0          !              |
-      !integer :: ich = 0             !none          |counter
-      integer :: idp = 0             !              |
-      integer :: iplt = 0
-      integer :: iupd = 0            !none          |counter
-      integer :: ipest = 0           !none          |counter
-      integer :: date_time(8) = 0    !              | 
-      character*10 b(3)              !              |
-      real :: crop_yld_t_ha = 0.     !t/ha          |annual and ave annual basin crop yields
-      real :: sw_init = 0.
-      real :: sno_init = 0.
-      integer :: iob = 0             !              |
-      integer :: iord
-      integer :: curyr = 0           !              |
       integer :: mo = 0              !              |
       integer :: day_mo = 0          !              |
-      integer :: imallo = 0
-      integer :: ires = 0
-      real :: rnum = 0.              !none          |channel count per stream order (>= 1 to avoid 0/0)
 
       time%yrc = time%yrc_start
       
@@ -100,7 +140,43 @@
       time%day_mo = day_mo
       call cli_precip_control (0)
 
-      do curyr = 1, time%nbyr
+      end subroutine time_control_start
+
+
+      subroutine time_control_year_start (curyr)
+
+!!    MF6SWATp (S3): moved out of time_control, unchanged. Runs once at the
+!!    start of each simulated year, before that year's day loop.
+
+      use maximum_data_module
+      use calibration_data_module
+      use plant_data_module
+      use mgt_operations_module
+      use hru_module, only : hru, ihru, ipl, phubase, yr_skip
+      use plant_module
+      use soil_module
+      use time_module
+      use climate_module
+      use basin_module
+      use sd_channel_module
+      use hru_lte_module
+      use hydrograph_module
+      use output_landscape_module
+      use conditional_module
+      use constituent_mass_module
+      use output_ls_pesticide_module
+      use water_body_module
+      use water_allocation_module
+      !use reservoir_data_module
+
+      implicit none
+
+      external :: actions, aqu_pest_output_init, basin_sw_init, calsoft_ave_output, calsoft_sum_output, &
+                  cli_atmodep_time_control, cli_precip_control, climate_control, command, conditions, &
+                  mallo_control, xmon, sim_initday, wallo_control, mgt_newtillmix_cswat0, mf6swatp_day_exchange
+
+      integer, intent(in) :: curyr
+
     !!!!!  uncomment next three lines for RELEASE version only (Srin/Karim)
           !call DATE_AND_TIME (b(1), b(2), b(3), date_time)
           !write (*,1235) cal_sim, time%yrc
@@ -154,8 +230,54 @@
             pco%sw_init = "y"  !! won't reset again
           end if
         end if
-          
-        do julian_day = time%day_start, time%day_end_yr      !! begin daily loop
+
+      end subroutine time_control_year_start
+
+
+      subroutine time_control_day (julian_day)
+
+!!    MF6SWATp (S3): moved out of time_control, unchanged. One simulated
+!!    day -- the API's update() calls this once per day.
+
+      use maximum_data_module
+      use calibration_data_module
+      use plant_data_module
+      use mgt_operations_module
+      use hru_module, only : hru, ihru, ipl, phubase, yr_skip
+      use plant_module
+      use soil_module
+      use time_module
+      use climate_module
+      use basin_module
+      use sd_channel_module
+      use hru_lte_module
+      use hydrograph_module
+      use output_landscape_module
+      use conditional_module
+      use constituent_mass_module
+      use output_ls_pesticide_module
+      use water_body_module
+      use water_allocation_module
+      !use reservoir_data_module
+
+      implicit none
+
+      external :: actions, aqu_pest_output_init, basin_sw_init, calsoft_ave_output, calsoft_sum_output, &
+                  cli_atmodep_time_control, cli_precip_control, climate_control, command, conditions, &
+                  mallo_control, xmon, sim_initday, wallo_control, mgt_newtillmix_cswat0, mf6swatp_day_exchange
+
+      integer, intent(in) :: julian_day
+      integer :: j = 0               !none          |counter
+      integer :: id = 0              !              |
+      integer :: isched = 0          !              |
+      integer :: iupd = 0            !none          |counter
+      integer :: date_time(8) = 0    !              | 
+      character*10 b(3)              !              |
+      integer :: iob = 0             !              |
+      integer :: mo = 0              !              |
+      integer :: day_mo = 0          !              |
+      integer :: imallo = 0
+
           time%day = julian_day
           !! determine month and day of month - time%mo and time%day_mo
           call xmon (time%day, mo, day_mo)
@@ -270,7 +392,51 @@
             end do
           end if
 
-        end do              !! end daily loop
+ 1234 format (1x, a, 2i4, 2x,i4,' Yr ', i4,' of ', i4, " Time",2x,i2,":",i2,":",i2)
+      end subroutine time_control_day
+
+
+      subroutine time_control_year_end
+
+!!    MF6SWATp (S3): moved out of time_control, unchanged. Runs once at
+!!    the end of each simulated year, after that year's day loop.
+
+      use maximum_data_module
+      use calibration_data_module
+      use plant_data_module
+      use mgt_operations_module
+      use hru_module, only : hru, ihru, ipl, phubase, yr_skip
+      use plant_module
+      use soil_module
+      use time_module
+      use climate_module
+      use basin_module
+      use sd_channel_module
+      use hru_lte_module
+      use hydrograph_module
+      use output_landscape_module
+      use conditional_module
+      use constituent_mass_module
+      use output_ls_pesticide_module
+      use water_body_module
+      use water_allocation_module
+      !use reservoir_data_module
+
+      implicit none
+
+      external :: actions, aqu_pest_output_init, basin_sw_init, calsoft_ave_output, calsoft_sum_output, &
+                  cli_atmodep_time_control, cli_precip_control, climate_control, command, conditions, &
+                  mallo_control, xmon, sim_initday, wallo_control, mgt_newtillmix_cswat0, mf6swatp_day_exchange
+
+      integer :: j = 0               !none          |counter
+      integer :: isched = 0          !              |
+      integer :: idp = 0             !              |
+      integer :: iplt = 0
+      integer :: ipest = 0           !none          |counter
+      real :: crop_yld_t_ha = 0.     !t/ha          |annual and ave annual basin crop yields
+      real :: sw_init = 0.
+      real :: sno_init = 0.
+      integer :: iob = 0             !              |
 
         !! perform end-of-year processes
         
@@ -374,8 +540,47 @@
 
         !! update simulation year
         time%yrc = time%yrc + 1
-      end do            !!     end annual loop
-      
+
+      end subroutine time_control_year_end
+
+
+      subroutine time_control_finish
+
+!!    MF6SWATp (S3): moved out of time_control, unchanged. Runs once
+!!    after all years are done -- the API's finalize() calls this too.
+
+      use maximum_data_module
+      use calibration_data_module
+      use plant_data_module
+      use mgt_operations_module
+      use hru_module, only : hru, ihru, ipl, phubase, yr_skip
+      use plant_module
+      use soil_module
+      use time_module
+      use climate_module
+      use basin_module
+      use sd_channel_module
+      use hru_lte_module
+      use hydrograph_module
+      use output_landscape_module
+      use conditional_module
+      use constituent_mass_module
+      use output_ls_pesticide_module
+      use water_body_module
+      use water_allocation_module
+      !use reservoir_data_module
+
+      implicit none
+
+      external :: actions, aqu_pest_output_init, basin_sw_init, calsoft_ave_output, calsoft_sum_output, &
+                  cli_atmodep_time_control, cli_precip_control, climate_control, command, conditions, &
+                  mallo_control, xmon, sim_initday, wallo_control, mgt_newtillmix_cswat0, mf6swatp_day_exchange
+
+      integer :: iord
+      integer :: ires = 0
+      integer :: iob = 0             !              |
+      real :: rnum = 0.              !none          |channel count per stream order (>= 1 to avoid 0/0)
+
       !! write channel morphology - downcutting and widening
       bsn_sedbud%upland_t = bls_a%sedyld * bsn%area_ls_ha
       
@@ -452,7 +657,4 @@
       yrs_print = time%yrs_prt
       time = time_init
 
-      return
- 1234 format (1x, a, 2i4, 2x,i4,' Yr ', i4,' of ', i4, " Time",2x,i2,":",i2,":",i2)
-      
-      end subroutine time_control
+      end subroutine time_control_finish

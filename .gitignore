@@ -59,6 +59,7 @@ CMakeCache.txt
 .history/*
 Resources/R*
 src/main.f90
+src/swat_control.f90
 ford.md
 /.vs/SWAT_PLUS_DEV
 /.vs/github/config
