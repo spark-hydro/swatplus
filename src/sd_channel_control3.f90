@@ -15,6 +15,7 @@
       use ch_salt_module !rtb salt
       use ch_cs_module !rtb cs
       use gwflow_module, only: flood_freq !rtb gwflow
+      use mf6swatp_module, only : mf6swatp_apply_gw_to_channel   !! MF6SWATp feedback path
       use ch_pesticide_module               !!!  nbs added 7-20-23
       use channel_velocity_module
       use water_allocation_module
@@ -149,6 +150,9 @@
         call gwflow_tile(ich) !groundwater --> channel
         call gwflow_satexcess(ich) !groundwater --> channel
       end if
+
+      !! MF6SWATp: groundwater flow into / out of the channel, as computed by MF6 (no-op unless the API turned it on)
+      call mf6swatp_apply_gw_to_channel(ich)
       
       !! set inflow hyds for printing
       chsd_d(ich)%flo_in = ht1%flo / 86400.     !flow for morphology output - m3/s

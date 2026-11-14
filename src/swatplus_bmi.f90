@@ -16,11 +16,13 @@
 !!    pieces in the same order: time_control_year_start on the first day of a
 !!    year, time_control_day, time_control_year_end after the last.
 
-      use, intrinsic :: iso_c_binding, only : c_int, c_double, c_char, c_null_char, c_ptr, c_loc
+      use, intrinsic :: iso_c_binding, only : c_int, c_double, c_char, c_null_char, c_ptr, c_loc, c_f_pointer
       use time_module, only : time
       use basin_module, only : prog
       use hru_module, only : sepbtm, hru
-      use hydrograph_module, only : sp_ob
+      use hydrograph_module, only : sp_ob, ch_fp_wb
+      use mf6swatp_module, only : mf6swatp_feedback_enabled, mf6swatp_feedback_init, &
+                                  mf6swatp_gw_to_channel, mf6swatp_gw_applied
 
       implicit none
 
@@ -60,11 +62,22 @@
       integer, parameter, private :: VAR_NONE = 0
       integer, parameter, private :: VAR_SEPBTM = 1     !! HRU/SEPBTM  (float, one value per HRU)
       integer, parameter, private :: VAR_AREA_HA = 2    !! HRU/AREA_HA (double, copy made at initialize)
+      integer, parameter, private :: VAR_GW_IN = 3       !! CHANNEL/GW_FLOW_IN (double, m3 per channel, settable): water MF6 returns to the channel
+      integer, parameter, private :: VAR_GW_APPLIED = 4   !! CHANNEL/GW_APPLIED (double, m3 per channel, read only): what SWAT+ really added
+      integer, parameter, private :: VAR_CH_OUTFLOW = 5   !! CHANNEL/OUTFLOW (double, m3/day, read only): water leaving each channel on the last day
+      integer, parameter, private :: VAR_CH_LOSSES = 6    !! CHANNEL/LOSSES (double, m3/day, read only): transmission loss + evaporation on the last day
+      integer, parameter, private :: VAR_CH_STORED = 7    !! CHANNEL/STORED (double, m3, read only): water held in channel + floodplain + wetland at the end of the last day
 
       !! hru(j)%area_ha as a flat double-precision array: area_ha is a
       !! component of an array of derived types, so it has no flat memory of
       !! its own to point at
       real(c_double), allocatable, target, save, private :: api_area_ha(:)
+
+      !! per-channel daily water balance terms, copied from ch_fp_wb after every
+      !! update (the feedback test, F3, needs them: for a channel that receives
+      !! a volume, outflow + losses + the change in stored water must account
+      !! for all of it)
+      real(c_double), allocatable, target, save, private :: api_ch_outflow(:), api_ch_losses(:), api_ch_stored(:)
 
       contains
 
@@ -100,6 +113,9 @@
           api_area_ha(j) = real(hru(j)%area_ha, c_double)
         end do
 
+        call mf6swatp_feedback_init (sp_ob%chandeg)     !! allocates only; the feedback is switched on by the first set_value
+        allocate (api_ch_outflow(sp_ob%chandeg), api_ch_losses(sp_ob%chandeg), api_ch_stored(sp_ob%chandeg), source = 0.0_c_double)
+
         api_initialized = .true.
         bmi_status = BMI_SUCCESS
       end function bmi_initialize
@@ -107,6 +123,7 @@
       function bmi_update() result(bmi_status) bind(C, name="update")
         integer(c_int) :: bmi_status
         external :: time_control_year_start, time_control_day, time_control_year_end
+        integer :: j
 
         bmi_status = BMI_FAILURE
         if (.not. api_initialized) then
@@ -138,6 +155,12 @@
           call time_control_year_end
           api_year_open = .false.
         end if
+
+        do j = 1, size(api_ch_outflow)
+          api_ch_outflow(j) = real(ch_fp_wb(j)%outflo, c_double)
+          api_ch_losses(j) = real(ch_fp_wb(j)%tl, c_double) + real(ch_fp_wb(j)%ev, c_double)
+          api_ch_stored(j) = real(ch_fp_wb(j)%tot_stor, c_double) + real(ch_fp_wb(j)%wet_stor, c_double)
+        end do
         bmi_status = BMI_SUCCESS
       end function bmi_update
 
@@ -238,7 +261,7 @@
         select case (var_code(c_var_address))
         case (VAR_SEPBTM)
           call to_c_string("FLOAT", var_type, LEN_VAR_TYPE)
-        case (VAR_AREA_HA)
+        case (VAR_AREA_HA, VAR_GW_IN, VAR_GW_APPLIED, VAR_CH_OUTFLOW, VAR_CH_LOSSES, VAR_CH_STORED)
           call to_c_string("DOUBLE", var_type, LEN_VAR_TYPE)
         case default
           return
@@ -257,6 +280,16 @@
           var_shape(1) = size(sepbtm)
         case (VAR_AREA_HA)
           var_shape(1) = size(api_area_ha)
+        case (VAR_GW_IN)
+          var_shape(1) = size(mf6swatp_gw_to_channel)
+        case (VAR_GW_APPLIED)
+          var_shape(1) = size(mf6swatp_gw_applied)
+        case (VAR_CH_OUTFLOW)
+          var_shape(1) = size(api_ch_outflow)
+        case (VAR_CH_LOSSES)
+          var_shape(1) = size(api_ch_losses)
+        case (VAR_CH_STORED)
+          var_shape(1) = size(api_ch_stored)
         case default
           return
         end select
@@ -277,11 +310,60 @@
           x = c_loc(sepbtm(1))
         case (VAR_AREA_HA)
           x = c_loc(api_area_ha(1))
+        case (VAR_GW_IN)
+          if (size(mf6swatp_gw_to_channel) == 0) then
+            call set_error("this model has no swat-deg (chandeg) channels")
+            return
+          end if
+          x = c_loc(mf6swatp_gw_to_channel(1))
+        case (VAR_GW_APPLIED)
+          if (size(mf6swatp_gw_applied) == 0) then
+            call set_error("this model has no swat-deg (chandeg) channels")
+            return
+          end if
+          x = c_loc(mf6swatp_gw_applied(1))
+        case (VAR_CH_OUTFLOW, VAR_CH_LOSSES, VAR_CH_STORED)
+          if (size(api_ch_outflow) == 0) then
+            call set_error("this model has no swat-deg (chandeg) channels")
+            return
+          end if
+          if (var_code(c_var_address) == VAR_CH_OUTFLOW) x = c_loc(api_ch_outflow(1))
+          if (var_code(c_var_address) == VAR_CH_LOSSES) x = c_loc(api_ch_losses(1))
+          if (var_code(c_var_address) == VAR_CH_STORED) x = c_loc(api_ch_stored(1))
         case default
           return
         end select
         bmi_status = BMI_SUCCESS
       end function bmi_get_value_ptr
+
+      !! copies the caller's array into SWAT+'s request array. The caller must
+      !! pass exactly get_var_shape values: nothing here can check the length of
+      !! a bare pointer. Only CHANNEL/GW_FLOW_IN can be set; the first call
+      !! switches the feedback on.
+      function bmi_set_value(c_var_address, c_arr_ptr) result(bmi_status) bind(C, name="set_value")
+        character(kind=c_char), intent(in) :: c_var_address(*)
+        type(c_ptr), intent(in) :: c_arr_ptr
+        integer(c_int) :: bmi_status
+        real(c_double), pointer :: values(:)
+
+        bmi_status = BMI_FAILURE
+        select case (var_code(c_var_address))
+        case (VAR_GW_IN)
+          if (size(mf6swatp_gw_to_channel) == 0) then
+            call set_error("this model has no swat-deg (chandeg) channels")
+            return
+          end if
+          call c_f_pointer(c_arr_ptr, values, [size(mf6swatp_gw_to_channel)])
+          mf6swatp_gw_to_channel = values
+          mf6swatp_feedback_enabled = .true.
+        case (VAR_SEPBTM, VAR_AREA_HA, VAR_GW_APPLIED, VAR_CH_OUTFLOW, VAR_CH_LOSSES, VAR_CH_STORED)
+          call set_error("this variable is read only; only CHANNEL/GW_FLOW_IN can be set")
+          return
+        case default
+          return
+        end select
+        bmi_status = BMI_SUCCESS
+      end function bmi_set_value
 
       !! which variable a C address names (upper-cased, so "hru/sepbtm"
       !! works too). Sets the error message and returns VAR_NONE when the
@@ -311,8 +393,18 @@
           code = VAR_SEPBTM
         case ("HRU/AREA_HA")
           code = VAR_AREA_HA
+        case ("CHANNEL/GW_FLOW_IN")
+          code = VAR_GW_IN
+        case ("CHANNEL/GW_APPLIED")
+          code = VAR_GW_APPLIED
+        case ("CHANNEL/OUTFLOW")
+          code = VAR_CH_OUTFLOW
+        case ("CHANNEL/LOSSES")
+          code = VAR_CH_LOSSES
+        case ("CHANNEL/STORED")
+          code = VAR_CH_STORED
         case default
-          call set_error("unknown variable '" // trim(name) // "'; available: HRU/SEPBTM, HRU/AREA_HA")
+          call set_error("unknown variable '" // trim(name) // "'; available: HRU/SEPBTM, HRU/AREA_HA, CHANNEL/GW_FLOW_IN, CHANNEL/GW_APPLIED, CHANNEL/OUTFLOW, CHANNEL/LOSSES, CHANNEL/STORED")
         end select
       end function var_code
 
