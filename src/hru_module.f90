@@ -445,7 +445,7 @@
       real, dimension (:), allocatable :: sedorgn
       real, dimension (:), allocatable :: sedorgp
       real, dimension (:), allocatable :: sedyld
-      real, dimension (:), allocatable :: sepbtm
+      real, dimension (:), allocatable, target :: sepbtm   !! target: the API (swatplus_bmi.f90) hands out a pointer to it
       real, dimension (:), allocatable :: surfq
       real, dimension (:), allocatable :: surqno3
       real, dimension (:,:), allocatable :: surqsalt

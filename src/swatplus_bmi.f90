@@ -16,9 +16,11 @@
 !!    pieces in the same order: time_control_year_start on the first day of a
 !!    year, time_control_day, time_control_year_end after the last.
 
-      use, intrinsic :: iso_c_binding, only : c_int, c_double, c_char, c_null_char
+      use, intrinsic :: iso_c_binding, only : c_int, c_double, c_char, c_null_char, c_ptr, c_loc
       use time_module, only : time
       use basin_module, only : prog
+      use hru_module, only : sepbtm, hru
+      use hydrograph_module, only : sp_ob
 
       implicit none
 
@@ -51,12 +53,26 @@
       integer, save, private :: api_days_total = 0       !! days in the whole run
       character(len=LEN_ERR_MESSAGE), save, private :: api_last_error = ""
 
+      !! variables readable through get_value_ptr (S5). The name lookup is
+      !! var_code(); adding a variable means one new code, one case in
+      !! var_code, and one case each in get_var_type / get_var_shape /
+      !! get_value_ptr.
+      integer, parameter, private :: VAR_NONE = 0
+      integer, parameter, private :: VAR_SEPBTM = 1     !! HRU/SEPBTM  (float, one value per HRU)
+      integer, parameter, private :: VAR_AREA_HA = 2    !! HRU/AREA_HA (double, copy made at initialize)
+
+      !! hru(j)%area_ha as a flat double-precision array: area_ha is a
+      !! component of an array of derived types, so it has no flat memory of
+      !! its own to point at
+      real(c_double), allocatable, target, save, private :: api_area_ha(:)
+
       contains
 
       function bmi_initialize(config_file) result(bmi_status) bind(C, name="initialize")
         character(kind=c_char), intent(in) :: config_file(*)
         integer(c_int) :: bmi_status
         external :: swat_initialize, time_control_start
+        integer :: j
 
         bmi_status = BMI_FAILURE
         if (api_ever_initialized) then
@@ -78,6 +94,12 @@
         api_julian_day = 0
         api_days_done = 0
         api_year_open = .false.
+
+        allocate (api_area_ha(sp_ob%hru))
+        do j = 1, sp_ob%hru
+          api_area_ha(j) = real(hru(j)%area_ha, c_double)
+        end do
+
         api_initialized = .true.
         bmi_status = BMI_SUCCESS
       end function bmi_initialize
@@ -192,6 +214,107 @@
         call to_c_string(api_last_error, bmi_error, LEN_ERR_MESSAGE)
         bmi_status = BMI_SUCCESS
       end function bmi_get_last_error
+
+      !! ---- variable access (S5) ---------------------------------------------
+
+      function bmi_get_var_rank(c_var_address, var_rank) result(bmi_status) bind(C, name="get_var_rank")
+        character(kind=c_char), intent(in) :: c_var_address(*)
+        integer(c_int), intent(out) :: var_rank
+        integer(c_int) :: bmi_status
+
+        var_rank = 0
+        bmi_status = BMI_FAILURE
+        if (var_code(c_var_address) == VAR_NONE) return
+        var_rank = 1          !! both variables are 1-D, one value per HRU
+        bmi_status = BMI_SUCCESS
+      end function bmi_get_var_rank
+
+      function bmi_get_var_type(c_var_address, var_type) result(bmi_status) bind(C, name="get_var_type")
+        character(kind=c_char), intent(in) :: c_var_address(*)
+        character(kind=c_char), intent(out) :: var_type(*)
+        integer(c_int) :: bmi_status
+
+        bmi_status = BMI_FAILURE
+        select case (var_code(c_var_address))
+        case (VAR_SEPBTM)
+          call to_c_string("FLOAT", var_type, LEN_VAR_TYPE)
+        case (VAR_AREA_HA)
+          call to_c_string("DOUBLE", var_type, LEN_VAR_TYPE)
+        case default
+          return
+        end select
+        bmi_status = BMI_SUCCESS
+      end function bmi_get_var_type
+
+      function bmi_get_var_shape(c_var_address, var_shape) result(bmi_status) bind(C, name="get_var_shape")
+        character(kind=c_char), intent(in) :: c_var_address(*)
+        integer(c_int), intent(out) :: var_shape(*)
+        integer(c_int) :: bmi_status
+
+        bmi_status = BMI_FAILURE
+        select case (var_code(c_var_address))
+        case (VAR_SEPBTM)
+          var_shape(1) = size(sepbtm)
+        case (VAR_AREA_HA)
+          var_shape(1) = size(api_area_ha)
+        case default
+          return
+        end select
+        bmi_status = BMI_SUCCESS
+      end function bmi_get_var_shape
+
+      !! hands out the address of SWAT+'s own memory; nothing is copied, so
+      !! the caller sees every later update. The address stays valid until
+      !! finalize (sepbtm is allocated once, in allocate_parms)
+      function bmi_get_value_ptr(c_var_address, x) result(bmi_status) bind(C, name="get_value_ptr")
+        character(kind=c_char), intent(in) :: c_var_address(*)
+        type(c_ptr), intent(out) :: x
+        integer(c_int) :: bmi_status
+
+        bmi_status = BMI_FAILURE
+        select case (var_code(c_var_address))
+        case (VAR_SEPBTM)
+          x = c_loc(sepbtm(1))
+        case (VAR_AREA_HA)
+          x = c_loc(api_area_ha(1))
+        case default
+          return
+        end select
+        bmi_status = BMI_SUCCESS
+      end function bmi_get_value_ptr
+
+      !! which variable a C address names (upper-cased, so "hru/sepbtm"
+      !! works too). Sets the error message and returns VAR_NONE when the
+      !! library is not running or the name is unknown.
+      function var_code(c_var_address) result(code)
+        character(kind=c_char), intent(in) :: c_var_address(*)
+        integer :: code
+        character(len=LEN_VAR_ADDRESS) :: name
+        integer :: i, ch
+
+        code = VAR_NONE
+        if (.not. api_initialized) then
+          call set_error("variables can only be read between initialize and finalize")
+          return
+        end if
+
+        name = ""
+        do i = 1, LEN_VAR_ADDRESS - 1
+          if (c_var_address(i) == c_null_char) exit
+          ch = iachar(c_var_address(i))
+          if (ch >= iachar("a") .and. ch <= iachar("z")) ch = ch - 32
+          name(i:i) = achar(ch)
+        end do
+
+        select case (trim(name))
+        case ("HRU/SEPBTM")
+          code = VAR_SEPBTM
+        case ("HRU/AREA_HA")
+          code = VAR_AREA_HA
+        case default
+          call set_error("unknown variable '" // trim(name) // "'; available: HRU/SEPBTM, HRU/AREA_HA")
+        end select
+      end function var_code
 
       !! number of days the run will simulate, from the same rules
       !! time_control_year_start applies (leap years, first and last day)
