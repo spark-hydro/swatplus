@@ -29,6 +29,12 @@
       !! false until the API's first set_value, and the arrays are allocated only
       !! by the library, so an ordinary SWAT+ executable run never touches any of this.
       logical :: mf6swatp_feedback_enabled = .false.
+
+      !! Channel transmission loss (ch_rtmusk.f90): SWAT+ removes `chk x length x width x 24` of water from every channel each day, with
+      !! GWFLOW on or off (with GWFLOW on only the reported "seep" is set to zero). When MF6 computes the exchange between channel and
+      !! aquifer (Darcy's law with the day's flow depth), this loss must not run as well, or the channel loses the water twice. The
+      !! API sets this switch (CONTROL/TRANSLOSS_OFF); it is false in every ordinary run.
+      logical :: mf6swatp_transloss_off = .false.
       real(8), allocatable, target :: mf6swatp_gw_to_channel(:)   !! m3 requested, positive = into the channel
       real(8), allocatable, target :: mf6swatp_gw_applied(:)      !! m3 actually added to the channel storage the last time
 

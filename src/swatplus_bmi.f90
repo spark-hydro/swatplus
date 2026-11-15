@@ -21,8 +21,10 @@
       use basin_module, only : prog
       use hru_module, only : sepbtm, hru
       use hydrograph_module, only : sp_ob, ch_fp_wb
+      use sd_channel_module, only : ch_rcurv
+      use output_landscape_module, only : hwb_d
       use mf6swatp_module, only : mf6swatp_feedback_enabled, mf6swatp_feedback_init, &
-                                  mf6swatp_gw_to_channel, mf6swatp_gw_applied
+                                  mf6swatp_gw_to_channel, mf6swatp_gw_applied, mf6swatp_transloss_off
 
       implicit none
 
@@ -67,17 +69,25 @@
       integer, parameter, private :: VAR_CH_OUTFLOW = 5   !! CHANNEL/OUTFLOW (double, m3/day, read only): water leaving each channel on the last day
       integer, parameter, private :: VAR_CH_LOSSES = 6    !! CHANNEL/LOSSES (double, m3/day, read only): transmission loss + evaporation on the last day
       integer, parameter, private :: VAR_CH_STORED = 7    !! CHANNEL/STORED (double, m3, read only): water held in channel + floodplain + wetland at the end of the last day
+      integer, parameter, private :: VAR_CH_DEPTH = 8     !! CHANNEL/FLOW_DEPTH (double, m, read only): depth of water on the rating curve at the last day's outflow rate (ch_rcurv%out2%dep)
+      integer, parameter, private :: VAR_CH_CHSTOR = 12   !! CHANNEL/CH_STORED (double, m3, read only): water held in the channel itself at the end of the last day (ch_fp_wb%ch_stor); the part the feedback removes water from
+      integer, parameter, private :: VAR_ETREM = 13    !! HRU/ET_REMAINING (double, mm, read only): potential ET minus actual ET of the last day, hwb_d%pet - hwb_d%et; the same number GWFLOW calls etremain (hru_control.f90: pet_day - etday), which exists only when GWFLOW is on
+      integer, parameter, private :: VAR_FLAG_TL = 10    !! CONTROL/TRANSLOSS_OFF (integer, 1 value, settable): 1 = SWAT+ skips its channel transmission loss
+      integer, parameter, private :: VAR_CH_TLOSS = 11   !! CHANNEL/TRANSMISSION_LOSS (double, m3/day, read only): SWAT+'s own loss on the last day (ch_fp_wb%tl)
+      integer, parameter, private :: VAR_CH_WETPER = 9    !! CHANNEL/WETTED_PERIMETER (double, m, read only): wetted perimeter at that depth (ch_rcurv%out2%wet_perim)
 
       !! hru(j)%area_ha as a flat double-precision array: area_ha is a
       !! component of an array of derived types, so it has no flat memory of
       !! its own to point at
-      real(c_double), allocatable, target, save, private :: api_area_ha(:)
+      real(c_double), allocatable, target, save, private :: api_area_ha(:), api_etrem(:)
 
       !! per-channel daily water balance terms, copied from ch_fp_wb after every
       !! update (the feedback test, F3, needs them: for a channel that receives
       !! a volume, outflow + losses + the change in stored water must account
       !! for all of it)
       real(c_double), allocatable, target, save, private :: api_ch_outflow(:), api_ch_losses(:), api_ch_stored(:)
+      real(c_double), allocatable, target, save, private :: api_ch_depth(:), api_ch_wetper(:), api_ch_tloss(:), api_ch_chstor(:)
+      integer(c_int), target, save, private :: api_transloss_flag(1) = 0
 
       contains
 
@@ -108,13 +118,14 @@
         api_days_done = 0
         api_year_open = .false.
 
-        allocate (api_area_ha(sp_ob%hru))
+        allocate (api_area_ha(sp_ob%hru), api_etrem(sp_ob%hru), source = 0.0_c_double)
         do j = 1, sp_ob%hru
           api_area_ha(j) = real(hru(j)%area_ha, c_double)
         end do
 
         call mf6swatp_feedback_init (sp_ob%chandeg)     !! allocates only; the feedback is switched on by the first set_value
         allocate (api_ch_outflow(sp_ob%chandeg), api_ch_losses(sp_ob%chandeg), api_ch_stored(sp_ob%chandeg), source = 0.0_c_double)
+        allocate (api_ch_depth(sp_ob%chandeg), api_ch_wetper(sp_ob%chandeg), api_ch_tloss(sp_ob%chandeg), api_ch_chstor(sp_ob%chandeg), source = 0.0_c_double)
 
         api_initialized = .true.
         bmi_status = BMI_SUCCESS
@@ -156,10 +167,25 @@
           api_year_open = .false.
         end if
 
+        do j = 1, size(api_etrem)
+          api_etrem(j) = real(hwb_d(j)%pet, c_double) - real(hwb_d(j)%et, c_double)
+        end do
+
         do j = 1, size(api_ch_outflow)
           api_ch_outflow(j) = real(ch_fp_wb(j)%outflo, c_double)
           api_ch_losses(j) = real(ch_fp_wb(j)%tl, c_double) + real(ch_fp_wb(j)%ev, c_double)
           api_ch_stored(j) = real(ch_fp_wb(j)%tot_stor, c_double) + real(ch_fp_wb(j)%wet_stor, c_double)
+          !! SWAT+ does not reset the rating curve of a channel that holds no water (ch_rtmusk skips it), so out2 keeps an old
+          !! value: report depth and wetted perimeter only for channels that hold water (same limit as ch_rtmusk, 1e-6 m3)
+          if (ch_fp_wb(j)%tot_stor > 1.0e-6) then
+            api_ch_depth(j) = real(ch_rcurv(j)%out2%dep, c_double)
+            api_ch_wetper(j) = real(ch_rcurv(j)%out2%wet_perim, c_double)
+          else
+            api_ch_depth(j) = 0.0_c_double
+            api_ch_wetper(j) = 0.0_c_double
+          end if
+          api_ch_tloss(j) = real(ch_fp_wb(j)%tl, c_double)
+          api_ch_chstor(j) = real(ch_fp_wb(j)%ch_stor, c_double)
         end do
         bmi_status = BMI_SUCCESS
       end function bmi_update
@@ -261,7 +287,9 @@
         select case (var_code(c_var_address))
         case (VAR_SEPBTM)
           call to_c_string("FLOAT", var_type, LEN_VAR_TYPE)
-        case (VAR_AREA_HA, VAR_GW_IN, VAR_GW_APPLIED, VAR_CH_OUTFLOW, VAR_CH_LOSSES, VAR_CH_STORED)
+        case (VAR_FLAG_TL)
+          call to_c_string("INTEGER", var_type, LEN_VAR_TYPE)
+        case (VAR_AREA_HA, VAR_ETREM, VAR_GW_IN, VAR_GW_APPLIED, VAR_CH_OUTFLOW, VAR_CH_LOSSES, VAR_CH_STORED, VAR_CH_DEPTH, VAR_CH_WETPER, VAR_CH_TLOSS, VAR_CH_CHSTOR)
           call to_c_string("DOUBLE", var_type, LEN_VAR_TYPE)
         case default
           return
@@ -280,6 +308,8 @@
           var_shape(1) = size(sepbtm)
         case (VAR_AREA_HA)
           var_shape(1) = size(api_area_ha)
+        case (VAR_ETREM)
+          var_shape(1) = size(api_etrem)
         case (VAR_GW_IN)
           var_shape(1) = size(mf6swatp_gw_to_channel)
         case (VAR_GW_APPLIED)
@@ -290,6 +320,16 @@
           var_shape(1) = size(api_ch_losses)
         case (VAR_CH_STORED)
           var_shape(1) = size(api_ch_stored)
+        case (VAR_CH_DEPTH)
+          var_shape(1) = size(api_ch_depth)
+        case (VAR_CH_WETPER)
+          var_shape(1) = size(api_ch_wetper)
+        case (VAR_CH_TLOSS)
+          var_shape(1) = size(api_ch_tloss)
+        case (VAR_CH_CHSTOR)
+          var_shape(1) = size(api_ch_chstor)
+        case (VAR_FLAG_TL)
+          var_shape(1) = 1
         case default
           return
         end select
@@ -310,6 +350,8 @@
           x = c_loc(sepbtm(1))
         case (VAR_AREA_HA)
           x = c_loc(api_area_ha(1))
+        case (VAR_ETREM)
+          x = c_loc(api_etrem(1))
         case (VAR_GW_IN)
           if (size(mf6swatp_gw_to_channel) == 0) then
             call set_error("this model has no swat-deg (chandeg) channels")
@@ -322,7 +364,9 @@
             return
           end if
           x = c_loc(mf6swatp_gw_applied(1))
-        case (VAR_CH_OUTFLOW, VAR_CH_LOSSES, VAR_CH_STORED)
+        case (VAR_FLAG_TL)
+          x = c_loc(api_transloss_flag(1))
+        case (VAR_CH_OUTFLOW, VAR_CH_LOSSES, VAR_CH_STORED, VAR_CH_DEPTH, VAR_CH_WETPER, VAR_CH_TLOSS, VAR_CH_CHSTOR)
           if (size(api_ch_outflow) == 0) then
             call set_error("this model has no swat-deg (chandeg) channels")
             return
@@ -330,6 +374,10 @@
           if (var_code(c_var_address) == VAR_CH_OUTFLOW) x = c_loc(api_ch_outflow(1))
           if (var_code(c_var_address) == VAR_CH_LOSSES) x = c_loc(api_ch_losses(1))
           if (var_code(c_var_address) == VAR_CH_STORED) x = c_loc(api_ch_stored(1))
+          if (var_code(c_var_address) == VAR_CH_DEPTH) x = c_loc(api_ch_depth(1))
+          if (var_code(c_var_address) == VAR_CH_WETPER) x = c_loc(api_ch_wetper(1))
+          if (var_code(c_var_address) == VAR_CH_TLOSS) x = c_loc(api_ch_tloss(1))
+          if (var_code(c_var_address) == VAR_CH_CHSTOR) x = c_loc(api_ch_chstor(1))
         case default
           return
         end select
@@ -345,9 +393,14 @@
         type(c_ptr), intent(in) :: c_arr_ptr
         integer(c_int) :: bmi_status
         real(c_double), pointer :: values(:)
+        integer(c_int), pointer :: ivalues(:)
 
         bmi_status = BMI_FAILURE
         select case (var_code(c_var_address))
+        case (VAR_FLAG_TL)
+          call c_f_pointer(c_arr_ptr, ivalues, [1])
+          api_transloss_flag(1) = ivalues(1)
+          mf6swatp_transloss_off = (ivalues(1) /= 0)
         case (VAR_GW_IN)
           if (size(mf6swatp_gw_to_channel) == 0) then
             call set_error("this model has no swat-deg (chandeg) channels")
@@ -356,7 +409,7 @@
           call c_f_pointer(c_arr_ptr, values, [size(mf6swatp_gw_to_channel)])
           mf6swatp_gw_to_channel = values
           mf6swatp_feedback_enabled = .true.
-        case (VAR_SEPBTM, VAR_AREA_HA, VAR_GW_APPLIED, VAR_CH_OUTFLOW, VAR_CH_LOSSES, VAR_CH_STORED)
+        case (VAR_SEPBTM, VAR_AREA_HA, VAR_ETREM, VAR_GW_APPLIED, VAR_CH_OUTFLOW, VAR_CH_LOSSES, VAR_CH_STORED, VAR_CH_DEPTH, VAR_CH_WETPER, VAR_CH_TLOSS, VAR_CH_CHSTOR)
           call set_error("this variable is read only; only CHANNEL/GW_FLOW_IN can be set")
           return
         case default
@@ -393,6 +446,8 @@
           code = VAR_SEPBTM
         case ("HRU/AREA_HA")
           code = VAR_AREA_HA
+        case ("HRU/ET_REMAINING")
+          code = VAR_ETREM
         case ("CHANNEL/GW_FLOW_IN")
           code = VAR_GW_IN
         case ("CHANNEL/GW_APPLIED")
@@ -403,8 +458,18 @@
           code = VAR_CH_LOSSES
         case ("CHANNEL/STORED")
           code = VAR_CH_STORED
+        case ("CHANNEL/FLOW_DEPTH")
+          code = VAR_CH_DEPTH
+        case ("CONTROL/TRANSLOSS_OFF")
+          code = VAR_FLAG_TL
+        case ("CHANNEL/TRANSMISSION_LOSS")
+          code = VAR_CH_TLOSS
+        case ("CHANNEL/CH_STORED")
+          code = VAR_CH_CHSTOR
+        case ("CHANNEL/WETTED_PERIMETER")
+          code = VAR_CH_WETPER
         case default
-          call set_error("unknown variable '" // trim(name) // "'; available: HRU/SEPBTM, HRU/AREA_HA, CHANNEL/GW_FLOW_IN, CHANNEL/GW_APPLIED, CHANNEL/OUTFLOW, CHANNEL/LOSSES, CHANNEL/STORED")
+          call set_error("unknown variable '" // trim(name) // "'; available: HRU/SEPBTM, HRU/AREA_HA, HRU/ET_REMAINING, CHANNEL/GW_FLOW_IN, CHANNEL/GW_APPLIED, CHANNEL/OUTFLOW, CHANNEL/LOSSES, CHANNEL/STORED, CHANNEL/FLOW_DEPTH, CHANNEL/WETTED_PERIMETER, CHANNEL/TRANSMISSION_LOSS, CHANNEL/CH_STORED, CONTROL/TRANSLOSS_OFF")
         end select
       end function var_code
 

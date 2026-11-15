@@ -21,6 +21,7 @@
       use reservoir_data_module
       use water_body_module
       use conditional_module
+      use mf6swatp_module, only : mf6swatp_transloss_off   !! MF6SWATp: MF6 may take over the channel-aquifer loss
       
       implicit none
       
@@ -191,7 +192,7 @@
       
       !! compute water balance - evap and seep
       !! calculate transmission losses (seepage)
-      if (ch_stor(jrch)%flo > 1.e-6) then
+      if (ch_stor(jrch)%flo > 1.e-6 .and. .not. mf6swatp_transloss_off) then
         !! mm/hr * km * m * 24. = m3
         trans_loss = sd_ch(jrch)%chk * sd_ch(jrch)%chl * rcurv%wet_perim * 24.
         trans_loss = sd_ch(jrch)%chk * sd_ch(jrch)%chl * sd_ch(jrch)%chw * 24.
