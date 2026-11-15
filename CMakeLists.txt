@@ -172,14 +172,15 @@ if(EXISTS "${PROJECT_SOURCE_DIR}/ford.md.in")
 endif()
 
 
-file(GLOB sources src/*.f90)
+# mf6swatp: our own Fortran (module, daily exchange hook, API) lives in src/mf6swatp/
+file(GLOB sources src/*.f90 src/mf6swatp/*.f90)
 # mf6swatp: the API library's source list is taken before anything is removed
 # from the executable's. The library gets everything except main.f90 (a
 # library has no `program main`); the executable gets everything except the
 # API's own control surface, swatplus_bmi.f90, so it contains no API code.
 set(api_sources ${sources})
 list(REMOVE_ITEM api_sources "${PROJECT_SOURCE_DIR}/src/main.f90")
-list(REMOVE_ITEM sources "${PROJECT_SOURCE_DIR}/src/swatplus_bmi.f90")
+list(REMOVE_ITEM sources "${PROJECT_SOURCE_DIR}/src/mf6swatp/swatplus_bmi.f90")
 add_executable(${SWATPLUS_EXE} ${sources})
 # Each target's compiled .mod interface files need their own directory:
 # without this, two targets compiling the same source (the executable and
@@ -200,7 +201,7 @@ install(TARGETS ${SWATPLUS_EXE} DESTINATION RUNTIME DESTINATION ${PROJECT_SOURCE
 # API shared library (mf6swatp, branch mf6swatp-api: SWAT+ as a callable
 # library, so it can be driven from Python the same way modflowapi drives
 # MF6). Sources: see api_sources above. Its control functions are in
-# src/swatplus_bmi.f90 (from step S4 of plan_swatplus_api.md). Left out of
+# src/mf6swatp/swatplus_bmi.f90 (from step S4 of plan_swatplus_api.md). Left out of
 # `install()`: this project builds and runs straight out of build/Release or
 # build/Debug (setup.md), no `cmake --install` step.
 set(SWATPLUS_API_LIB "swatplus_api")
