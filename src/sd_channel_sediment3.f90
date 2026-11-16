@@ -11,6 +11,7 @@
       use utils
       use basin_module, only : bsn_cc
       use gwflow_module, only : flood_freq
+      use mf6swatp_module, only : mf6swatp_flood_depth
       use channel_velocity_module
 
       implicit none
@@ -62,6 +63,7 @@
 
       ich = isdch
       iob = sp_ob1%chandeg + jrch - 1
+      if (allocated(mf6swatp_flood_depth)) mf6swatp_flood_depth(ich) = 0.d0     !! mf6swatp: no flood unless the test below says so
       iord = sd_ch(ich)%order
 
       ebtm_m = 0.
@@ -111,6 +113,8 @@
       flovol_ob = 0.
       bf_flow = sd_ch(ich)%bankfull_flo * ch_rcurv(ich)%elev(2)%flo_rate
       if (peakrate > bf_flow) then
+        !! mf6swatp: depth of water over the floodplain at the day's peak flow (rating curve depth minus bankfull depth)
+        if (allocated(mf6swatp_flood_depth)) mf6swatp_flood_depth(ich) = dble(max(rcurv%dep - sd_ch(ich)%chd, 0.))
         !floodplain exchange with aquifer (gwflow)
         if(bsn_cc%gwflow.eq.1) then
           flood_freq(ich) = 1

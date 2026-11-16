@@ -24,7 +24,8 @@
       use sd_channel_module, only : ch_rcurv
       use output_landscape_module, only : hwb_d
       use mf6swatp_module, only : mf6swatp_feedback_enabled, mf6swatp_feedback_init, &
-                                  mf6swatp_gw_to_channel, mf6swatp_gw_applied, mf6swatp_transloss_off
+                                  mf6swatp_gw_to_channel, mf6swatp_gw_applied, mf6swatp_transloss_off, &
+                                  mf6swatp_flood_depth
 
       implicit none
 
@@ -74,6 +75,7 @@
       integer, parameter, private :: VAR_ETREM = 13    !! HRU/ET_REMAINING (double, mm, read only): potential ET minus actual ET of the last day, hwb_d%pet - hwb_d%et; the same number GWFLOW calls etremain (hru_control.f90: pet_day - etday), which exists only when GWFLOW is on
       integer, parameter, private :: VAR_FLAG_TL = 10    !! CONTROL/TRANSLOSS_OFF (integer, 1 value, settable): 1 = SWAT+ skips its channel transmission loss
       integer, parameter, private :: VAR_CH_TLOSS = 11   !! CHANNEL/TRANSMISSION_LOSS (double, m3/day, read only): SWAT+'s own loss on the last day (ch_fp_wb%tl)
+      integer, parameter, private :: VAR_CH_FLOOD = 14   !! CHANNEL/FLOOD_DEPTH (double, m, read only): depth of water over the floodplain on the last day, at the day's peak flow; 0 on a day without flood (same test as GWFLOW's floodplain exchange: peak flow > 1.5 x the flow at bankfull)
       integer, parameter, private :: VAR_CH_WETPER = 9    !! CHANNEL/WETTED_PERIMETER (double, m, read only): wetted perimeter at that depth (ch_rcurv%out2%wet_perim)
 
       !! hru(j)%area_ha as a flat double-precision array: area_ha is a
@@ -289,7 +291,7 @@
           call to_c_string("FLOAT", var_type, LEN_VAR_TYPE)
         case (VAR_FLAG_TL)
           call to_c_string("INTEGER", var_type, LEN_VAR_TYPE)
-        case (VAR_AREA_HA, VAR_ETREM, VAR_GW_IN, VAR_GW_APPLIED, VAR_CH_OUTFLOW, VAR_CH_LOSSES, VAR_CH_STORED, VAR_CH_DEPTH, VAR_CH_WETPER, VAR_CH_TLOSS, VAR_CH_CHSTOR)
+        case (VAR_AREA_HA, VAR_ETREM, VAR_GW_IN, VAR_GW_APPLIED, VAR_CH_OUTFLOW, VAR_CH_LOSSES, VAR_CH_STORED, VAR_CH_DEPTH, VAR_CH_WETPER, VAR_CH_TLOSS, VAR_CH_CHSTOR, VAR_CH_FLOOD)
           call to_c_string("DOUBLE", var_type, LEN_VAR_TYPE)
         case default
           return
@@ -328,6 +330,8 @@
           var_shape(1) = size(api_ch_tloss)
         case (VAR_CH_CHSTOR)
           var_shape(1) = size(api_ch_chstor)
+        case (VAR_CH_FLOOD)
+          var_shape(1) = size(mf6swatp_flood_depth)
         case (VAR_FLAG_TL)
           var_shape(1) = 1
         case default
@@ -364,6 +368,12 @@
             return
           end if
           x = c_loc(mf6swatp_gw_applied(1))
+        case (VAR_CH_FLOOD)
+          if (size(mf6swatp_flood_depth) == 0) then
+            call set_error("this model has no swat-deg (chandeg) channels")
+            return
+          end if
+          x = c_loc(mf6swatp_flood_depth(1))
         case (VAR_FLAG_TL)
           x = c_loc(api_transloss_flag(1))
         case (VAR_CH_OUTFLOW, VAR_CH_LOSSES, VAR_CH_STORED, VAR_CH_DEPTH, VAR_CH_WETPER, VAR_CH_TLOSS, VAR_CH_CHSTOR)
@@ -409,7 +419,7 @@
           call c_f_pointer(c_arr_ptr, values, [size(mf6swatp_gw_to_channel)])
           mf6swatp_gw_to_channel = values
           mf6swatp_feedback_enabled = .true.
-        case (VAR_SEPBTM, VAR_AREA_HA, VAR_ETREM, VAR_GW_APPLIED, VAR_CH_OUTFLOW, VAR_CH_LOSSES, VAR_CH_STORED, VAR_CH_DEPTH, VAR_CH_WETPER, VAR_CH_TLOSS, VAR_CH_CHSTOR)
+        case (VAR_SEPBTM, VAR_AREA_HA, VAR_ETREM, VAR_GW_APPLIED, VAR_CH_OUTFLOW, VAR_CH_LOSSES, VAR_CH_STORED, VAR_CH_DEPTH, VAR_CH_WETPER, VAR_CH_TLOSS, VAR_CH_CHSTOR, VAR_CH_FLOOD)
           call set_error("this variable is read only; only CHANNEL/GW_FLOW_IN can be set")
           return
         case default
@@ -466,10 +476,12 @@
           code = VAR_CH_TLOSS
         case ("CHANNEL/CH_STORED")
           code = VAR_CH_CHSTOR
+        case ("CHANNEL/FLOOD_DEPTH")
+          code = VAR_CH_FLOOD
         case ("CHANNEL/WETTED_PERIMETER")
           code = VAR_CH_WETPER
         case default
-          call set_error("unknown variable '" // trim(name) // "'; available: HRU/SEPBTM, HRU/AREA_HA, HRU/ET_REMAINING, CHANNEL/GW_FLOW_IN, CHANNEL/GW_APPLIED, CHANNEL/OUTFLOW, CHANNEL/LOSSES, CHANNEL/STORED, CHANNEL/FLOW_DEPTH, CHANNEL/WETTED_PERIMETER, CHANNEL/TRANSMISSION_LOSS, CHANNEL/CH_STORED, CONTROL/TRANSLOSS_OFF")
+          call set_error("unknown variable '" // trim(name) // "'; available: HRU/SEPBTM, HRU/AREA_HA, HRU/ET_REMAINING, CHANNEL/GW_FLOW_IN, CHANNEL/GW_APPLIED, CHANNEL/OUTFLOW, CHANNEL/LOSSES, CHANNEL/STORED, CHANNEL/FLOW_DEPTH, CHANNEL/WETTED_PERIMETER, CHANNEL/TRANSMISSION_LOSS, CHANNEL/CH_STORED, CHANNEL/FLOOD_DEPTH, CONTROL/TRANSLOSS_OFF")
         end select
       end function var_code
 

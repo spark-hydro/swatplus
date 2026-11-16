@@ -37,6 +37,7 @@
       logical :: mf6swatp_transloss_off = .false.
       real(8), allocatable, target :: mf6swatp_gw_to_channel(:)   !! m3 requested, positive = into the channel
       real(8), allocatable, target :: mf6swatp_gw_applied(:)      !! m3 actually added to the channel storage the last time
+      real(8), allocatable, target :: mf6swatp_flood_depth(:)     !! m of water on the floodplain on the last day (0 = no flood); set in sd_channel_sediment3 with GWFLOW's own flood test
 
       contains
 
@@ -54,6 +55,7 @@
       if (.not. allocated(mf6swatp_gw_to_channel)) then
         allocate (mf6swatp_gw_to_channel(n_channels), source = 0.d0)
         allocate (mf6swatp_gw_applied(n_channels), source = 0.d0)
+        allocate (mf6swatp_flood_depth(n_channels), source = 0.d0)
       end if
 
       end subroutine mf6swatp_feedback_init
