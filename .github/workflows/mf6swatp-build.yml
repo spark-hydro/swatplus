@@ -170,6 +170,12 @@ jobs:
       run:
         shell: bash
     steps:
+      - name: Use CMake 3.31
+        # CMake 4.5 on the runner stops on ifx with "required internal CMake variable not set: CMAKE_Fortran_PREPROCESS_SOURCE"
+        uses: jwlawson/actions-setup-cmake@v2
+        with:
+          cmake-version: '3.31.x'
+
       - name: Install compiler
         uses: fortran-lang/setup-fortran@v1
         with:
