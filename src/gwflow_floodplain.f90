@@ -5,7 +5,7 @@
 !!    (exchange volumes are used in gwflow_simulate, in groundwater balance equations)
 
       use gwflow_module
-      use hydrograph_module, only : ch_stor
+      use hydrograph_module, only : ch_stor,tot_stor
       use sd_channel_module, only : sd_ch
       use constituent_mass_module
 
@@ -96,6 +96,7 @@
 
             !store for channel object (positive value = water added to channel)
             ch_stor(chan_id)%flo = ch_stor(chan_id)%flo + (Q*(-1))
+            tot_stor(chan_id)%flo = tot_stor(chan_id)%flo + (Q*(-1)) !ch_rtmusk routes tot_stor, so the exchange must change it too
 
             !add to gwflow source/sink arrays
             gw_hyd_ss(cell_id)%fpln = gw_hyd_ss(cell_id)%fpln + Q

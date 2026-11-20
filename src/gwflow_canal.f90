@@ -6,7 +6,7 @@
 !!    that remove water from a specified channel.
 
       use gwflow_module
-      use hydrograph_module, only : ch_stor,ch_out_d
+      use hydrograph_module, only : ch_stor,tot_stor,ch_out_d
       use time_module
       use constituent_mass_module
 
@@ -144,6 +144,7 @@
                     endif
                     gw_hyd_ss(cell_id)%canl = gw_hyd_ss(cell_id)%canl + Q !store for water balance calculations
                     ch_stor(chan_id)%flo = ch_stor(chan_id)%flo - Q !remove water from channel
+                    tot_stor(chan_id)%flo = tot_stor(chan_id)%flo - Q !ch_rtmusk routes tot_stor, so the removal must change it too
                   endif
                 endif
                 gw_hyd_ss_yr(cell_id)%canl = gw_hyd_ss_yr(cell_id)%canl + Q !store for annual water

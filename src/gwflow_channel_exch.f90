@@ -5,7 +5,7 @@
 !!    (exchange volumes are used in gwflow_simulate, in groundwater balance equations)
 
       use gwflow_module
-      use hydrograph_module, only : ch_stor,ch_out_d
+      use hydrograph_module, only : ch_stor,tot_stor,ch_out_d
       use sd_channel_module, only : sd_ch
       use constituent_mass_module
       use time_module
@@ -109,6 +109,7 @@
           !store for channel object (positive value = water added to channel)
 					chan_flow = ch_stor(chan_id)%flo
           ch_stor(chan_id)%flo = ch_stor(chan_id)%flo + (Q*(-1))
+          tot_stor(chan_id)%flo = tot_stor(chan_id)%flo + (Q*(-1)) !ch_rtmusk routes tot_stor, so the exchange must change it too
 
           !heat
           if(gw_heat_flag == 1) then

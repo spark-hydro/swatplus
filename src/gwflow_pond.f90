@@ -7,7 +7,7 @@
 
 
       use gwflow_module
-      use hydrograph_module, only : ch_stor
+      use hydrograph_module, only : ch_stor,tot_stor
       use time_module
       use constituent_mass_module
       use water_allocation_module
@@ -94,6 +94,7 @@
 						gw_pond_info(r)%div_uns = div_specified - div_added !unsatisfied diversion
 						!remove from the channel --> add to the recharge pond
 	          ch_stor(chan_id)%flo = ch_stor(chan_id)%flo - div_added
+	          tot_stor(chan_id)%flo = tot_stor(chan_id)%flo - div_added !ch_rtmusk routes tot_stor, so the diversion must change it too
 						gw_pond_info(r)%stor = gw_pond_info(r)%stor + div_added
 						!remove salt mass from the channel --> add to the recharge pond
 						if (gw_solute_flag == 1) then
