@@ -29,6 +29,10 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
+      - name: Get the official release tags
+        # the fork has no tags of its own; CMake takes the version name from `git describe --tags`
+        run: git fetch --tags --force https://github.com/swat-model/swatplus.git
+
       - name: Versions
         run: |
           echo "FC=$FC"
@@ -39,7 +43,9 @@ jobs:
 
       - name: Build (executable and library)
         run: |
-          cmake -S . -B build/Release -D CMAKE_BUILD_TYPE=Release -D CMAKE_Fortran_COMPILER=$FC
+          TAG=$(git describe --tags 2>/dev/null || echo "mf6swatp-${GITHUB_SHA::7}")
+          echo "version name: $TAG"
+          cmake -S . -B build/Release -D CMAKE_BUILD_TYPE=Release -D CMAKE_Fortran_COMPILER=$FC -D TAG=$TAG
           cmake --build build/Release --parallel 4
           ls -l build/Release | grep -E "swatplus|\.so"
 

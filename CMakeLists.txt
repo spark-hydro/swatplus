@@ -211,6 +211,14 @@ set_target_properties(${SWATPLUS_API_LIB} PROPERTIES
     Fortran_MODULE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/${SWATPLUS_API_LIB}.dir/mod"
 )
 
+# The directory-wide link_libraries("-static") above (non-Arch Linux) is meant for the executable. A shared library cannot be
+# linked with -static (crtbeginT.o: "relocation R_X86_64_32 ... failed to set dynamic section sizes"), so remove it from this target only.
+get_target_property(_api_link_libs ${SWATPLUS_API_LIB} LINK_LIBRARIES)
+if(_api_link_libs)
+    list(REMOVE_ITEM _api_link_libs "-static")
+    set_target_properties(${SWATPLUS_API_LIB} PROPERTIES LINK_LIBRARIES "${_api_link_libs}")
+endif()
+
 
 #############################################################################
 # Testing
