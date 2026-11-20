@@ -1,0 +1,57 @@
+# Release of the mf6swatp builds: runs the build workflow, zips each build and creates a DRAFT release.
+# Nothing is public until the draft is published by hand on GitHub.
+#   - push a tag  mf6swatp-v*   (the tag name becomes the release name), or
+#   - run it by hand with a release tag name.
+
+name: Release mf6swatp
+
+on:
+  push:
+    tags: ['mf6swatp-v*']
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Tag name of the draft release, for example mf6swatp-v62.0.1-1'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    uses: ./.github/workflows/mf6swatp-build.yml
+
+  release:
+    name: Draft release
+    runs-on: ubuntu-24.04
+    needs: build
+    steps:
+      - name: Download the builds
+        uses: actions/download-artifact@v4
+        with:
+          path: builds
+
+      - name: Zip each build
+        run: |
+          mkdir -p zips
+          for d in builds/*; do
+            n=$(basename "$d")
+            (cd "$d" && zip -q -r "../../zips/$n.zip" .)
+          done
+          ls -l zips
+
+      - name: Draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.release_tag || github.ref_name }}
+          name: ${{ github.event.inputs.release_tag || github.ref_name }}
+          target_commitish: ${{ github.sha }}
+          draft: true
+          prerelease: true
+          files: zips/*.zip
+          body: |
+            SWAT+ with the mf6swatp API (stand-alone executable and shared library `libswatplus_api`), built from the `mf6swatp-api-62.0.1` branch.
+            Each zip holds the executable, the library, `versions.txt` (compiler, CMake and source commit) and the LICENSE.
+            Test status: each build ran the Ames_sub1 test model with the executable; each library was loaded with ctypes and its 21 BMI names were checked.
+            The Windows builds were tested only on GitHub runners, not on a real machine and not through the Python driver.
+            Windows ifx zips include the Intel runtime DLLs.

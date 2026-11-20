@@ -1,25 +1,20 @@
 # Build the stand-alone SWAT+ executable and the shared library (libswatplus_api) of the mf6swatp branch:
 #   Linux   gfortran 16
-#   Windows gfortran 16 (MinGW)
+#   Windows gfortran 15 (gfortran 16 is an experiment: its Windows build crashed on 2026-11-20)
 #   Windows ifx (Intel oneAPI)
-# Each job runs quick checks and keeps its files as a workflow artifact. The release job (tag push or a manual
-# run with a release tag) puts them into a DRAFT release: nothing is public until the draft is published by hand.
+# Each job runs quick checks and keeps its files as a workflow artifact.
+# mf6swatp-release.yml calls this workflow (workflow_call) and puts the artifacts into a draft release.
 
 name: Build mf6swatp
 
 on:
   push:
     branches: [mf6swatp-api-62.0.1]
-    tags: ['mf6swatp-v*']
   workflow_dispatch:
-    inputs:
-      release_tag:
-        description: 'Create a draft release with this tag name (leave empty for a build only)'
-        required: false
-        default: ''
+  workflow_call:
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   UPSTREAM: https://github.com/swat-model/swatplus.git
@@ -276,37 +271,3 @@ jobs:
         with:
           name: mf6swatp-windows-ifx-${{ matrix.generator == 'Ninja' && 'ninja' || 'nmake' }}
           path: out/
-
-  release:
-    name: Draft release
-    runs-on: ubuntu-24.04
-    needs: [linux-gnu, windows-gnu, windows-ifx]
-    if: startsWith(github.ref, 'refs/tags/mf6swatp-v') || github.event.inputs.release_tag != ''
-    steps:
-      - name: Download the builds
-        uses: actions/download-artifact@v4
-        with:
-          path: builds
-
-      - name: Zip each build
-        run: |
-          mkdir -p zips
-          for d in builds/*; do
-            n=$(basename $d)
-            (cd $d && zip -q -r ../../zips/$n.zip .)
-          done
-          ls -l zips
-
-      - name: Draft release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.event.inputs.release_tag || github.ref_name }}
-          name: ${{ github.event.inputs.release_tag || github.ref_name }}
-          draft: true
-          prerelease: true
-          files: zips/*.zip
-          generate_release_notes: false
-          body: |
-            SWAT+ with the mf6swatp API (stand-alone executable and shared library `libswatplus_api`), built from the `mf6swatp-api-62.0.1` branch.
-            Each zip holds the executable, the library, `versions.txt` (compiler, CMake and source commit) and the LICENSE.
-            Test status: each build ran the Ames_sub1 test model with the executable. The library was loaded only on Linux.
