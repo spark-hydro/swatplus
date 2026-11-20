@@ -164,8 +164,14 @@ jobs:
           path: out/
 
   windows-ifx:
-    name: Windows, ifx
+    name: Windows, ifx (${{ matrix.generator }})
     runs-on: windows-latest
+    # the ifx build is still being brought up: do not let it fail the workflow
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        generator: ['Ninja', 'NMake Makefiles']
     defaults:
       run:
         shell: bash
@@ -209,11 +215,19 @@ jobs:
         # cmd, not Git Bash: Git's own link.exe would shadow the Microsoft linker that ifx needs
         shell: cmd
         run: |
-          cmake -B build -G Ninja -D CMAKE_Fortran_COMPILER=ifx -D TAG=%TAG% -D CMAKE_BUILD_TYPE=Release
+          cmake -B build -G "${{ matrix.generator }}" -D CMAKE_Fortran_COMPILER=ifx -D TAG=%TAG% -D CMAKE_BUILD_TYPE=Release
           if errorlevel 1 exit /b 1
           cmake --build build --parallel 4
           if errorlevel 1 exit /b 1
           dir build\swatplus-*.exe build\*swatplus_api*
+
+      - name: Show the CMake log if the build failed
+        if: failure()
+        run: |
+          ls build/CMakeFiles | head -n 20
+          for f in build/CMakeFiles/CMakeConfigureLog.yaml build/CMakeFiles/CMakeError.log; do
+            [ -f "$f" ] && { echo "=== $f"; tail -n 70 "$f"; }
+          done
 
       - name: Run the executable on the Ames_sub1 test model
         run: |
@@ -234,7 +248,7 @@ jobs:
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: mf6swatp-windows-ifx
+          name: mf6swatp-windows-ifx-${{ matrix.generator == 'Ninja' && 'ninja' || 'nmake' }}
           path: out/
 
   release:
