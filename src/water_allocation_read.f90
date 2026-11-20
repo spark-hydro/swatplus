@@ -252,5 +252,9 @@
       end if
       close(107)
 
+      !! orcv_om (water leaving the basin through a POU of type orcv) was never allocated;
+      !! without it every orcv delivery in wallo_pou_deliv/wallo_return writes to an unallocated array.
+      if (.not. allocated(orcv_om)) allocate (orcv_om(max(1, db_mx%out_rcv)))
+
     return
     end subroutine water_allocation_read
