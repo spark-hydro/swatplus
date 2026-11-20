@@ -219,6 +219,15 @@ if(_api_link_libs)
     set_target_properties(${SWATPLUS_API_LIB} PROPERTIES LINK_LIBRARIES "${_api_link_libs}")
 endif()
 
+# Windows: export every symbol of the library (the bind(C) names of swatplus_bmi.f90 must be visible to Python), and for gfortran
+# carry the Fortran/GCC runtime inside the DLL so it needs no MinGW DLLs next to it.
+if(WIN32)
+    set_target_properties(${SWATPLUS_API_LIB} PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
+    if(CMAKE_Fortran_COMPILER_ID MATCHES GNU)
+        target_link_options(${SWATPLUS_API_LIB} PRIVATE -static-libgfortran -static-libgcc -static-libquadmath)
+    endif()
+endif()
+
 
 #############################################################################
 # Testing

@@ -1,24 +1,36 @@
-# Build the stand-alone SWAT+ executable and libswatplus_api.so of the mf6swatp branch with gfortran 16
-# (the compiler used for development), run quick checks and keep both files as a workflow artifact.
+# Build the stand-alone SWAT+ executable and the shared library (libswatplus_api) of the mf6swatp branch:
+#   Linux   gfortran 16
+#   Windows gfortran 16 (MinGW)
+#   Windows ifx (Intel oneAPI)
+# Each job runs quick checks and keeps its files as a workflow artifact. The release job (tag push or a manual
+# run with a release tag) puts them into a DRAFT release: nothing is public until the draft is published by hand.
 
-name: Build mf6swatp (gfortran 16)
+name: Build mf6swatp
 
 on:
   push:
     branches: [mf6swatp-api-62.0.1]
+    tags: ['mf6swatp-v*']
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Create a draft release with this tag name (leave empty for a build only)'
+        required: false
+        default: ''
 
 permissions:
-  contents: read
+  contents: write
+
+env:
+  UPSTREAM: https://github.com/swat-model/swatplus.git
 
 jobs:
-  build:
+  linux-gnu:
+    name: Linux, gfortran 16
     runs-on: ubuntu-24.04
-
     steps:
       - name: Install compiler
         uses: fortran-lang/setup-fortran@v1
-        id: setup-fortran
         with:
           compiler: gcc
           version: 16
@@ -31,7 +43,7 @@ jobs:
 
       - name: Get the official release tags
         # the fork has no tags of its own; CMake takes the version name from `git describe --tags`
-        run: git fetch --tags --force https://github.com/swat-model/swatplus.git
+        run: git fetch --tags --force $UPSTREAM
 
       - name: Versions
         run: |
@@ -71,10 +83,170 @@ jobs:
       - name: Collect files
         run: |
           mkdir -p out
-          cp build/Release/libswatplus_api.so build/Release/swatplus-*-Rel versions.txt out/
+          cp build/Release/libswatplus_api.so build/Release/swatplus-*-Rel versions.txt LICENSE out/
 
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: mf6swatp-gfortran16-linux
+          name: mf6swatp-linux-gnu16
           path: out/
+
+  windows-gnu:
+    name: Windows, gfortran 16
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Install compiler
+        uses: fortran-lang/setup-fortran@v1
+        with:
+          compiler: gcc
+          version: 16
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Get the official release tags
+        run: git fetch --tags --force $UPSTREAM
+
+      - name: Versions
+        run: |
+          echo "FC=$FC"
+          $FC --version | head -n 1 | tee versions.txt
+          cmake --version | head -n 1 | tee -a versions.txt
+          echo "source: $(git rev-parse HEAD)" | tee -a versions.txt
+          echo "describe: $(git describe --tags --always)" | tee -a versions.txt
+
+      - name: Build (executable and library)
+        run: |
+          TAG=$(git describe --tags 2>/dev/null || echo "mf6swatp-${GITHUB_SHA::7}")
+          echo "version name: $TAG"
+          cmake -B build -G "MinGW Makefiles" -D CMAKE_Fortran_COMPILER=$FC -D TAG=$TAG -D CMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel 4
+          ls -l build | grep -E "swatplus|\.dll"
+
+      - name: Check which DLLs the library needs
+        run: |
+          dll=$(ls build/*swatplus_api*.dll | head -n 1)
+          echo "library: $dll"
+          objdump -p "$dll" | grep "DLL Name" || true
+
+      - name: Run the executable on the Ames_sub1 test model
+        run: |
+          exe=$(ls build/swatplus-*.exe | head -n 1)
+          rm -rf ames_run
+          cp -r refdata/Ames_sub1 ames_run
+          cp "$exe" ames_run/swatplus.exe
+          cd ames_run
+          ./swatplus.exe > run.log 2>&1 || { tail -n 30 run.log; exit 1; }
+          tail -n 3 run.log
+          grep -q "Execution successfully completed" run.log
+
+      - name: Collect files
+        run: |
+          mkdir -p out
+          cp build/*swatplus_api*.dll build/swatplus-*.exe versions.txt LICENSE out/
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: mf6swatp-windows-gnu16
+          path: out/
+
+  windows-ifx:
+    name: Windows, ifx
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Install compiler
+        uses: fortran-lang/setup-fortran@v1
+        with:
+          compiler: intel
+          version: '2025.2'
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Get the official release tags
+        run: git fetch --tags --force $UPSTREAM
+
+      - name: Versions
+        run: |
+          echo "FC=$FC"
+          ($FC --version 2>&1 | head -n 1) | tee versions.txt
+          cmake --version | head -n 1 | tee -a versions.txt
+          echo "source: $(git rev-parse HEAD)" | tee -a versions.txt
+          echo "describe: $(git describe --tags --always)" | tee -a versions.txt
+
+      - name: Build (executable and library)
+        run: |
+          TAG=$(git describe --tags 2>/dev/null || echo "mf6swatp-${GITHUB_SHA::7}")
+          echo "version name: $TAG"
+          cmake -B build -G Ninja -D CMAKE_Fortran_COMPILER=$FC -D TAG=$TAG -D CMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel 4
+          ls -l build | grep -E "swatplus|\.dll|\.lib"
+
+      - name: Run the executable on the Ames_sub1 test model
+        run: |
+          exe=$(ls build/swatplus-*.exe | head -n 1)
+          rm -rf ames_run
+          cp -r refdata/Ames_sub1 ames_run
+          cp "$exe" ames_run/swatplus.exe
+          cd ames_run
+          ./swatplus.exe > run.log 2>&1 || { tail -n 30 run.log; exit 1; }
+          tail -n 3 run.log
+          grep -q "Execution successfully completed" run.log
+
+      - name: Collect files
+        run: |
+          mkdir -p out
+          cp build/*swatplus_api*.dll build/swatplus-*.exe versions.txt LICENSE out/
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: mf6swatp-windows-ifx
+          path: out/
+
+  release:
+    name: Draft release
+    runs-on: ubuntu-24.04
+    needs: [linux-gnu, windows-gnu, windows-ifx]
+    if: startsWith(github.ref, 'refs/tags/mf6swatp-v') || github.event.inputs.release_tag != ''
+    steps:
+      - name: Download the builds
+        uses: actions/download-artifact@v4
+        with:
+          path: builds
+
+      - name: Zip each build
+        run: |
+          mkdir -p zips
+          for d in builds/*; do
+            n=$(basename $d)
+            (cd $d && zip -q -r ../../zips/$n.zip .)
+          done
+          ls -l zips
+
+      - name: Draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.release_tag || github.ref_name }}
+          name: ${{ github.event.inputs.release_tag || github.ref_name }}
+          draft: true
+          prerelease: true
+          files: zips/*.zip
+          generate_release_notes: false
+          body: |
+            SWAT+ with the mf6swatp API (stand-alone executable and shared library `libswatplus_api`), built from the `mf6swatp-api-62.0.1` branch.
+            Each zip holds the executable, the library, `versions.txt` (compiler, CMake and source commit) and the LICENSE.
+            Test status: each build ran the Ames_sub1 test model with the executable. The library was loaded only on Linux.
