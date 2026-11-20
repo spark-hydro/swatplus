@@ -224,7 +224,7 @@ endif()
 if(WIN32)
     set_target_properties(${SWATPLUS_API_LIB} PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
     if(CMAKE_Fortran_COMPILER_ID MATCHES GNU)
-        target_link_options(${SWATPLUS_API_LIB} PRIVATE -static-libgfortran -static-libgcc -static-libquadmath)
+        target_link_options(${SWATPLUS_API_LIB} PRIVATE -static -static-libgfortran -static-libgcc -static-libquadmath)
     endif()
 endif()
 

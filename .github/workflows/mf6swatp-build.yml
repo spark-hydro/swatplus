@@ -153,10 +153,11 @@ jobs:
           tail -n 3 run.log
           grep -q "Execution successfully completed" run.log
 
-      - name: Collect files
+      - name: Collect files and check the packaged library
         run: |
           mkdir -p out
           cp build/*swatplus_api*.dll build/swatplus-*.exe versions.txt LICENSE out/
+          python .github/scripts/check_dll.py out/$(ls out | grep -i swatplus_api | grep -i "\.dll$" | head -n 1)
 
       - name: Upload
         uses: actions/upload-artifact@v4
@@ -253,10 +254,19 @@ jobs:
           tail -n 3 run.log
           grep -q "Execution successfully completed" run.log
 
-      - name: Collect files
+      - name: Collect files (with the Intel runtime DLLs) and check the packaged library
         run: |
           mkdir -p out
-          cp build/*swatplus_api*.dll build/swatplus-*.exe versions.txt LICENSE out/
+          cp build/swatplus_api.dll build/swatplus-*.exe versions.txt LICENSE out/
+          # the Intel runtime DLLs the executable and the library need (Intel allows redistributing them)
+          for f in build/swatplus-*.exe build/swatplus_api.dll; do dumpbin //dependents $f; done | tr -d '\r' | grep -iE "^\s+\S+\.dll$" | tr -d ' ' | sort -u > deps.txt
+          cat deps.txt
+          root=$(cygpath -u "$CMPLR_ROOT")
+          for d in $(cat deps.txt); do
+            if [ -f "$root/bin/$d" ]; then cp "$root/bin/$d" out/ && echo "runtime DLL packaged: $d"; fi
+          done
+          ls -l out
+          python .github/scripts/check_dll.py out/swatplus_api.dll
 
       - name: Upload
         uses: actions/upload-artifact@v4

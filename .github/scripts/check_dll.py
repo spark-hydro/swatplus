@@ -8,7 +8,7 @@ NAMES = ["BMI_LENVERSION", "BMI_LENGRIDTYPE", "BMI_LENCOMPONENTNAME", "BMI_LENVA
          "initialize", "update", "finalize", "get_start_time", "get_end_time", "get_current_time", "get_time_step", "get_component_name",
          "get_version", "get_last_bmi_error", "get_var_rank", "get_var_type", "get_var_shape", "get_value_ptr", "set_value"]
 
-dll = sorted(glob.glob("build/*swatplus_api*.dll"))[0]
+dll = sys.argv[1] if len(sys.argv) > 1 else sorted(glob.glob("build/*swatplus_api*.dll"))[0]
 print("library:", dll)
 for d in os.environ.get("EXTRA_DLL_DIRS", "").split(os.pathsep):
     if d and os.path.isdir(d):
