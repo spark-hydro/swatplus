@@ -247,7 +247,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        generator: ['Ninja', 'NMake Makefiles']
+        generator: ['Ninja']
     defaults:
       run:
         shell: bash
