@@ -171,7 +171,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        generator: ['Ninja']
+        generator: ['Ninja', 'NMake Makefiles']
     defaults:
       run:
         shell: bash
@@ -210,6 +210,12 @@ jobs:
           TAG=$(git describe --tags 2>/dev/null || echo "mf6swatp-${GITHUB_SHA::7}")
           echo "version name: $TAG"
           echo "TAG=$TAG" >> $GITHUB_ENV
+
+      - name: Set up the Microsoft build environment
+        # ifx needs link.exe from Visual Studio ("ifx: error #10037: could not find 'link'" without it)
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
 
       - name: Build (executable and library)
         # cmd, not Git Bash: Git's own link.exe would shadow the Microsoft linker that ifx needs
