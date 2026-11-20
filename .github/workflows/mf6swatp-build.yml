@@ -135,12 +135,9 @@ jobs:
           cmake --build build --parallel 4
           ls -l build | grep -E "swatplus|\.dll"
 
-      - name: Check the library (DLLs it needs, exports, loads)
+      - name: List the DLLs the library and the executable need
         run: |
-          dll=$(ls build/*swatplus_api*.dll | head -n 1)
-          echo "DLLs the library needs:"
-          objdump -p "$dll" | grep "DLL Name" || true
-          python .github/scripts/check_dll.py
+          for f in build/*swatplus_api*.dll build/swatplus-*.exe; do echo "== $f"; objdump -p "$f" | grep "DLL Name" || true; done
 
       - name: Run the executable on the Ames_sub1 test model
         run: |
@@ -157,6 +154,12 @@ jobs:
         run: |
           mkdir -p out
           cp build/*swatplus_api*.dll build/swatplus-*.exe versions.txt LICENSE out/
+          # MinGW runtime DLLs that the files still need (libwinpthread-1.dll), copied from the compiler folder
+          bindir=$(dirname "$(which gfortran)")
+          for dep in $(objdump -p out/*.dll out/*.exe | grep "DLL Name" | awk '{print $3}' | tr -d '\r' | sort -u); do
+            if [ -f "$bindir/$dep" ]; then cp "$bindir/$dep" out/ && echo "runtime DLL packaged: $dep"; fi
+          done
+          ls -l out
           python .github/scripts/check_dll.py out/$(ls out | grep -i swatplus_api | grep -i "\.dll$" | head -n 1)
 
       - name: Upload
