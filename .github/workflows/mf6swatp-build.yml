@@ -92,8 +92,14 @@ jobs:
           path: out/
 
   windows-gnu:
-    name: Windows, gfortran 16
+    name: Windows, gfortran ${{ matrix.gcc }}
     runs-on: windows-latest
+    # gfortran 16.2.0 for Windows crashed (internal compiler error) on 2026-11-20; 15 is the fallback.
+    continue-on-error: ${{ matrix.gcc == 16 }}
+    strategy:
+      fail-fast: false
+      matrix:
+        gcc: [16, 15]
     defaults:
       run:
         shell: bash
@@ -102,7 +108,7 @@ jobs:
         uses: fortran-lang/setup-fortran@v1
         with:
           compiler: gcc
-          version: 16
+          version: ${{ matrix.gcc }}
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -154,7 +160,7 @@ jobs:
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: mf6swatp-windows-gnu16
+          name: mf6swatp-windows-gnu${{ matrix.gcc }}
           path: out/
 
   windows-ifx:
@@ -187,13 +193,21 @@ jobs:
           echo "source: $(git rev-parse HEAD)" | tee -a versions.txt
           echo "describe: $(git describe --tags --always)" | tee -a versions.txt
 
-      - name: Build (executable and library)
+      - name: Version name
         run: |
           TAG=$(git describe --tags 2>/dev/null || echo "mf6swatp-${GITHUB_SHA::7}")
           echo "version name: $TAG"
-          cmake -B build -G Ninja -D CMAKE_Fortran_COMPILER=$FC -D TAG=$TAG -D CMAKE_BUILD_TYPE=Release
+          echo "TAG=$TAG" >> $GITHUB_ENV
+
+      - name: Build (executable and library)
+        # cmd, not Git Bash: Git's own link.exe would shadow the Microsoft linker that ifx needs
+        shell: cmd
+        run: |
+          cmake -B build -G Ninja -D CMAKE_Fortran_COMPILER=ifx -D TAG=%TAG% -D CMAKE_BUILD_TYPE=Release
+          if errorlevel 1 exit /b 1
           cmake --build build --parallel 4
-          ls -l build | grep -E "swatplus|\.dll|\.lib"
+          if errorlevel 1 exit /b 1
+          dir build\swatplus-*.exe build\*swatplus_api*
 
       - name: Run the executable on the Ames_sub1 test model
         run: |
