@@ -1,0 +1,74 @@
+# Build the stand-alone SWAT+ executable and libswatplus_api.so of the mf6swatp branch with gfortran 16
+# (the compiler used for development), run quick checks and keep both files as a workflow artifact.
+
+name: Build mf6swatp (gfortran 16)
+
+on:
+  push:
+    branches: [mf6swatp-api-62.0.1]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Install compiler
+        uses: fortran-lang/setup-fortran@v1
+        id: setup-fortran
+        with:
+          compiler: gcc
+          version: 16
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Versions
+        run: |
+          echo "FC=$FC"
+          $FC --version | head -n 1 | tee versions.txt
+          cmake --version | head -n 1 | tee -a versions.txt
+          echo "source: $(git rev-parse HEAD)" | tee -a versions.txt
+          echo "describe: $(git describe --tags --always)" | tee -a versions.txt
+
+      - name: Build (executable and library)
+        run: |
+          cmake -S . -B build/Release -D CMAKE_BUILD_TYPE=Release -D CMAKE_Fortran_COMPILER=$FC
+          cmake --build build/Release --parallel 4
+          ls -l build/Release | grep -E "swatplus|\.so"
+
+      - name: Check the library is self-contained and loads
+        run: |
+          lib=build/Release/libswatplus_api.so
+          echo "undefined symbols the library needs from outside:"
+          nm -D --undefined-only $lib | awk '{print $2}' | sed 's/@.*//' | sort -u
+          ldd $lib
+          python3 -c "import ctypes; ctypes.CDLL('$lib'); print('library loads')"
+
+      - name: Run the executable on the Ames_sub1 test model
+        run: |
+          exe=$(ls build/Release/swatplus-*-Rel | head -n 1)
+          rm -rf ames_run
+          cp -r refdata/Ames_sub1 ames_run
+          cp "$exe" ames_run/swatplus.exe
+          cd ames_run
+          ./swatplus.exe > run.log 2>&1 || { tail -n 30 run.log; exit 1; }
+          tail -n 3 run.log
+          grep -q "Execution successfully completed" run.log
+
+      - name: Collect files
+        run: |
+          mkdir -p out
+          cp build/Release/libswatplus_api.so build/Release/swatplus-*-Rel versions.txt out/
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: mf6swatp-gfortran16-linux
+          path: out/
