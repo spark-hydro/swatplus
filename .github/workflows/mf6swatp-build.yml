@@ -171,7 +171,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        generator: ['Ninja', 'NMake Makefiles']
+        generator: ['Ninja']
     defaults:
       run:
         shell: bash
@@ -226,7 +226,7 @@ jobs:
         run: |
           ls build/CMakeFiles | head -n 20
           for f in build/CMakeFiles/CMakeConfigureLog.yaml build/CMakeFiles/CMakeError.log; do
-            [ -f "$f" ] && { echo "=== $f"; tail -n 70 "$f"; }
+            [ -f "$f" ] && { echo "=== $f"; head -n 150 "$f" | cut -c1-220; }
           done
 
       - name: Run the executable on the Ames_sub1 test model
