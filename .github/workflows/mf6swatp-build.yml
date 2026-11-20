@@ -1,5 +1,5 @@
 # Build the stand-alone SWAT+ executable and the shared library (libswatplus_api) of the mf6swatp branch:
-#   Linux   gfortran 16 (and 15, for comparing results between the two compilers)
+#   Linux   gfortran 16
 #   macOS   gfortran 15
 #   Windows gfortran 15 (gfortran 16 is an experiment: its Windows build crashed on 2026-11-20)
 #   Windows ifx (Intel oneAPI)
@@ -27,7 +27,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        gcc: [16, 15]
+        gcc: [16]
     steps:
       - name: Install compiler
         uses: fortran-lang/setup-fortran@v1
