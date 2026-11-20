@@ -135,11 +135,12 @@ jobs:
           cmake --build build --parallel 4
           ls -l build | grep -E "swatplus|\.dll"
 
-      - name: Check which DLLs the library needs
+      - name: Check the library (DLLs it needs, exports, loads)
         run: |
           dll=$(ls build/*swatplus_api*.dll | head -n 1)
-          echo "library: $dll"
+          echo "DLLs the library needs:"
           objdump -p "$dll" | grep "DLL Name" || true
+          python .github/scripts/check_dll.py
 
       - name: Run the executable on the Ames_sub1 test model
         run: |
@@ -226,6 +227,12 @@ jobs:
           cmake --build build --parallel 4
           if errorlevel 1 exit /b 1
           dir build\swatplus-*.exe build\*swatplus_api*
+
+      - name: Check the library (DLLs it needs, exports, loads)
+        run: |
+          echo "DLLs the library needs:"
+          dumpbin //dependents build/swatplus_api.dll | grep -i "\.dll" || true
+          EXTRA_DLL_DIRS="$(cygpath -w "$CMPLR_ROOT/bin")" python .github/scripts/check_dll.py
 
       - name: Show the CMake log if the build failed
         if: failure()
