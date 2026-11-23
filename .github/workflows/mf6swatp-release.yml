@@ -25,6 +25,8 @@ jobs:
     name: Draft release
     runs-on: ubuntu-24.04
     needs: build
+    # run even when an optional build (macOS: its runner can wait for 15 minutes and get cancelled) failed; the check below needs the three main zips
+    if: ${{ !cancelled() }}
     steps:
       - name: Download the builds
         uses: actions/download-artifact@v4
@@ -39,6 +41,9 @@ jobs:
             (cd "$d" && zip -q -r "../../zips/$n.zip" .)
           done
           ls -l zips
+          for need in mf6swatp-linux-gnu16 mf6swatp-windows-gnu15 mf6swatp-windows-ifx-ninja; do
+            test -f zips/$need.zip || { echo "missing build: $need"; exit 1; }
+          done
 
       - name: Draft release
         uses: softprops/action-gh-release@v2

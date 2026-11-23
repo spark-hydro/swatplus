@@ -170,7 +170,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        gcc: [16, 15]
+        # gfortran 16 for Windows is left out: it crashes every time (internal compiler error, 2026-11-20 and 2026-11-23); add 16 to try it again
+        gcc: [15]
     defaults:
       run:
         shell: bash
