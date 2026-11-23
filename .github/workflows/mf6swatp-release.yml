@@ -25,7 +25,7 @@ jobs:
     name: Draft release
     runs-on: ubuntu-24.04
     needs: build
-    # run even when an optional build (macOS: its runner can wait for 15 minutes and get cancelled) failed; the check below needs the three main zips
+    # run even when an optional build failed; the check below needs the three main zips
     if: ${{ !cancelled() }}
     steps:
       - name: Download the builds
