@@ -16,6 +16,8 @@
       integer :: lyr = 0              !none       |counter
       integer :: mlyr = 0             !           |
       integer :: isol = 0             !none       |counter
+      character (len=2000) :: sline = "" !         |one record of the file as text
+      integer :: ic = 0               !           |character counter
  
       eof = 0
       imax = 0
@@ -62,7 +64,14 @@
          allocate (soildb(isol)%ly(mlyr))
        
          backspace 107
-         read (107,*,iostat=eof) soildb(isol)%s%snam, soildb(isol)%s%nly,  &
+         !! A semicolon in the unquoted texture text (e.g. FINE;_gypsum;_material) is a separator for some libgfortran
+         !! versions (13.x, 14.x) and makes the read fail; replace it before the list-directed read
+         read (107,'(a)',iostat=eof) sline
+         if (eof < 0) exit
+         do ic = 1, len_trim(sline)
+           if (sline(ic:ic) == ";") sline(ic:ic) = "_"
+         end do
+         read (sline,*,iostat=eof) soildb(isol)%s%snam, soildb(isol)%s%nly,  &
           soildb(isol)%s%hydgrp, soildb(isol)%s%zmx,                       &           
           soildb(isol)%s%anion_excl, soildb(isol)%s%crk,                   &           
           soildb(isol)%s%texture

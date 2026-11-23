@@ -12,6 +12,8 @@
       integer :: imax = 0             !           |
       integer :: icno = 0             !none       |counter
       logical :: i_exist              !none       |check to determine if file exists
+      character (len=2000) :: sline = "" !         |one record of the file as text
+      integer :: ic = 0               !           |character counter
                 
       eof = 0
       imax = 0
@@ -42,7 +44,13 @@
         if (eof < 0) exit
         
         do icno = 1, imax
-          read (107,*,iostat=eof) cn(icno)
+          !! a semicolon in the description text is a separator for some libgfortran versions (13.x, 14.x); replace it
+          read (107,'(a)',iostat=eof) sline
+          if (eof < 0) exit
+          do ic = 1, len_trim(sline)
+            if (sline(ic:ic) == ";") sline(ic:ic) = "_"
+          end do
+          read (sline,*,iostat=eof) cn(icno)
           if (eof < 0) exit
         end do
         exit
