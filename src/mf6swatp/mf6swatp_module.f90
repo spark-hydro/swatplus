@@ -20,6 +20,15 @@
 
       integer :: mf6swatp_day_index = 0
 
+      !! Same-day coupling (plan_same_day_coupling.md, S1): the API can run a day in two parts, so that MF6 can solve between
+      !! them. Part "land" runs the start-of-day work and every object before the first channel or reservoir; part "routing"
+      !! runs the rest of the day. The executable and the API's update() use "all", which is the unsplit day.
+      integer, parameter :: mf6swatp_part_all = 0
+      integer, parameter :: mf6swatp_part_land = 1
+      integer, parameter :: mf6swatp_part_routing = 2
+      integer :: mf6swatp_part = mf6swatp_part_all
+      integer :: mf6swatp_next_object = 0      !! object number at which the routing part resumes (0 = none left)
+
       !! Feedback path (plan_feedback_path.md, F1): water that MF6 returns to a
       !! channel. Python (through the API) puts a volume per channel in
       !! mf6swatp_gw_to_channel; the channel routine adds it to the channel's

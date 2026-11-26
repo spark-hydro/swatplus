@@ -264,6 +264,7 @@
       use output_ls_pesticide_module
       use water_body_module
       use water_allocation_module
+      use mf6swatp_module, only : mf6swatp_part, mf6swatp_part_land, mf6swatp_part_routing
       
 
       implicit none
@@ -285,6 +286,9 @@
       integer :: mo = 0              !              |
       integer :: day_mo = 0          !              |
       integer :: imallo = 0
+
+      !! MF6SWATp: the start-of-day work is done once, before the land objects; the routing part skips it
+      if (mf6swatp_part /= mf6swatp_part_routing) then
 
           time%day = julian_day
           !! determine month and day of month - time%mo and time%day_mo
@@ -384,7 +388,11 @@
           !! allocation at start of day - withdrawal from outside source, water tower and canals
           if (db_mx%wallo_pou > 0) call wallo_start_day
 
+      end if      !! MF6SWATp: end of the start-of-day work
+
           call command              !! command loop 
+
+          if (mf6swatp_part == mf6swatp_part_land) return      !! MF6SWATp: the rest of the day follows in the routing part
 
           call mf6swatp_day_exchange   !! MF6SWATp: daily coupling hook (no-op unless enabled)
           

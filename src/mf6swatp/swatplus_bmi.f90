@@ -20,12 +20,13 @@
       use time_module, only : time
       use basin_module, only : prog
       use hru_module, only : sepbtm, hru
-      use hydrograph_module, only : sp_ob, ch_fp_wb
+      use hydrograph_module, only : sp_ob, sp_ob1, ob, ch_fp_wb
       use sd_channel_module, only : ch_rcurv
       use output_landscape_module, only : hwb_d
       use mf6swatp_module, only : mf6swatp_feedback_enabled, mf6swatp_feedback_init, &
                                   mf6swatp_gw_to_channel, mf6swatp_gw_applied, mf6swatp_transloss_off, &
-                                  mf6swatp_flood_depth
+                                  mf6swatp_flood_depth, mf6swatp_part, mf6swatp_part_all, mf6swatp_part_land, &
+                                  mf6swatp_part_routing
 
       implicit none
 
@@ -51,6 +52,8 @@
       logical, save, private :: api_initialized = .false.
       logical, save, private :: api_ever_initialized = .false.
       logical, save, private :: api_year_open = .false.
+      logical, save, private :: api_mid_day = .false.      !! the land part of a day has run, the routing part has not
+      logical, save, private :: api_order_checked = .false.
       integer, save, private :: api_curyr = 0            !! sequential year being run
       integer, save, private :: api_julian_day = 0       !! day of year last run
       integer, save, private :: api_day_last = 0         !! last day of the open year
@@ -135,19 +138,93 @@
 
       function bmi_update() result(bmi_status) bind(C, name="update")
         integer(c_int) :: bmi_status
-        external :: time_control_year_start, time_control_day, time_control_year_end
-        integer :: j
+        external :: time_control_day
 
         bmi_status = BMI_FAILURE
+        if (.not. day_can_start("update")) return
+        if (.not. start_next_day()) return
+
+        mf6swatp_part = mf6swatp_part_all
+        call time_control_day (api_julian_day)
+        call finish_day
+
+        call fill_hru_outputs
+        call fill_channel_outputs
+        bmi_status = BMI_SUCCESS
+      end function bmi_update
+
+      !! MF6SWATp same-day coupling: the first part of a day (start-of-day work, land objects). HRU outputs
+      !! (HRU/SEPBTM, HRU/ET_REMAINING) are today's after this call; channel outputs are still yesterday's.
+      function bmi_update_land() result(bmi_status) bind(C, name="mf6swatp_update_land")
+        integer(c_int) :: bmi_status
+        external :: time_control_day
+
+        bmi_status = BMI_FAILURE
+        if (.not. day_can_start("mf6swatp_update_land")) return
+        if (.not. api_order_checked) then
+          if (.not. land_before_routing()) then
+            call set_error("this model runs a land object after a channel or reservoir; the day cannot be split")
+            return
+          end if
+          api_order_checked = .true.
+        end if
+        if (.not. start_next_day()) return
+
+        mf6swatp_part = mf6swatp_part_land
+        call time_control_day (api_julian_day)
+        mf6swatp_part = mf6swatp_part_all
+        api_mid_day = .true.
+
+        call fill_hru_outputs
+        bmi_status = BMI_SUCCESS
+      end function bmi_update_land
+
+      !! The second part of the day started by mf6swatp_update_land: channels, reservoirs, end of day.
+      !! CHANNEL/GW_FLOW_IN set between the two calls is applied on this same day.
+      function bmi_update_routing() result(bmi_status) bind(C, name="mf6swatp_update_routing")
+        integer(c_int) :: bmi_status
+        external :: time_control_day
+
+        bmi_status = BMI_FAILURE
+        if (.not. api_initialized .or. .not. api_mid_day) then
+          call set_error("mf6swatp_update_routing must follow mf6swatp_update_land")
+          return
+        end if
+
+        mf6swatp_part = mf6swatp_part_routing
+        call time_control_day (api_julian_day)
+        mf6swatp_part = mf6swatp_part_all
+        api_mid_day = .false.
+        call finish_day
+
+        call fill_channel_outputs
+        bmi_status = BMI_SUCCESS
+      end function bmi_update_routing
+
+      logical function day_can_start(caller)
+        character(len=*), intent(in) :: caller
+
+        day_can_start = .false.
         if (.not. api_initialized) then
-          call set_error("update called before initialize, or after finalize")
+          call set_error(caller // " called before initialize, or after finalize")
+          return
+        end if
+        if (api_mid_day) then
+          call set_error(caller // " called in the middle of a day: call mf6swatp_update_routing first")
           return
         end if
         if (api_days_done >= api_days_total) then
           call set_error("the run is already at its end time")
           return
         end if
+        day_can_start = .true.
+      end function day_can_start
 
+      !! opens the next year if needed and moves to the next day
+      logical function start_next_day()
+        external :: time_control_year_start
+
+        start_next_day = .false.
         if (.not. api_year_open) then
           api_curyr = api_curyr + 1
           call time_control_year_start (api_curyr)
@@ -159,19 +236,49 @@
           end if
           api_year_open = .true.
         end if
-
         api_julian_day = api_julian_day + 1
-        call time_control_day (api_julian_day)
-        api_days_done = api_days_done + 1
+        start_next_day = .true.
+      end function start_next_day
 
+      subroutine finish_day()
+        external :: time_control_year_end
+
+        api_days_done = api_days_done + 1
         if (api_julian_day == api_day_last) then
           call time_control_year_end
           api_year_open = .false.
         end if
+      end subroutine finish_day
+
+      !! true if no HRU, landscape unit or gwflow object comes after the first channel or reservoir in the run order
+      logical function land_before_routing()
+        integer :: i
+        logical :: routing
+
+        land_before_routing = .true.
+        routing = .false.
+        i = sp_ob1%objs
+        do while (i /= 0)
+          if (ob(i)%typ == "chandeg" .or. ob(i)%typ == "res") routing = .true.
+          if (routing .and. (ob(i)%typ == "hru" .or. ob(i)%typ == "ru" .or. ob(i)%typ == "hru_lte" .or.   &
+                             ob(i)%typ == "gwflow")) then
+            land_before_routing = .false.
+            return
+          end if
+          i = ob(i)%cmd_next
+        end do
+      end function land_before_routing
+
+      subroutine fill_hru_outputs()
+        integer :: j
 
         do j = 1, size(api_etrem)
           api_etrem(j) = real(hwb_d(j)%pet, c_double) - real(hwb_d(j)%et, c_double)
         end do
+      end subroutine fill_hru_outputs
+
+      subroutine fill_channel_outputs()
+        integer :: j
 
         do j = 1, size(api_ch_outflow)
           api_ch_outflow(j) = real(ch_fp_wb(j)%outflo, c_double)
@@ -189,8 +296,7 @@
           api_ch_tloss(j) = real(ch_fp_wb(j)%tl, c_double)
           api_ch_chstor(j) = real(ch_fp_wb(j)%ch_stor, c_double)
         end do
-        bmi_status = BMI_SUCCESS
-      end function bmi_update
+      end subroutine fill_channel_outputs
 
       function bmi_finalize() result(bmi_status) bind(C, name="finalize")
         integer(c_int) :: bmi_status
@@ -199,6 +305,10 @@
         bmi_status = BMI_FAILURE
         if (.not. api_initialized) then
           call set_error("finalize called before initialize, or twice")
+          return
+        end if
+        if (api_mid_day) then
+          call set_error("finalize called in the middle of a day: call mf6swatp_update_routing first")
           return
         end if
         call time_control_finish

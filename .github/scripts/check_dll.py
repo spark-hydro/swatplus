@@ -6,7 +6,8 @@ import sys
 
 NAMES = ["BMI_LENVERSION", "BMI_LENGRIDTYPE", "BMI_LENCOMPONENTNAME", "BMI_LENVARADDRESS", "BMI_LENVARTYPE", "BMI_LENERRMESSAGE",
          "initialize", "update", "finalize", "get_start_time", "get_end_time", "get_current_time", "get_time_step", "get_component_name",
-         "get_version", "get_last_bmi_error", "get_var_rank", "get_var_type", "get_var_shape", "get_value_ptr", "set_value"]
+         "get_version", "get_last_bmi_error", "get_var_rank", "get_var_type", "get_var_shape", "get_value_ptr", "set_value",
+         "mf6swatp_update_land", "mf6swatp_update_routing"]
 
 dll = sys.argv[1] if len(sys.argv) > 1 else sorted(glob.glob("build/*swatplus_api*.dll") + glob.glob("build/*swatplus_api*.dylib") + glob.glob("build/*swatplus_api*.so"))[0]
 print("library:", dll)

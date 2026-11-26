@@ -12,6 +12,7 @@
 
       use time_module
       use hydrograph_module
+      use mf6swatp_module, only : mf6swatp_part, mf6swatp_part_land, mf6swatp_part_routing, mf6swatp_next_object
       use ru_module
       use channel_module
       use hru_lte_module
@@ -70,9 +71,22 @@
       integer :: iob_chan = 0        !rtb gwflow    |ob index for channel
       real :: sumflo = 0.
 
-      icmd = sp_ob1%objs
+      !! MF6SWATp: a day may run in two parts (land objects, then routing objects); see mf6swatp_module
+      if (mf6swatp_part == mf6swatp_part_routing) then
+        icmd = mf6swatp_next_object
+      else
+        icmd = sp_ob1%objs
+      end if
       
       do while (icmd /= 0)
+
+        !! MF6SWATp: the land part stops before the first channel or reservoir
+        if (mf6swatp_part == mf6swatp_part_land) then
+          if (ob(icmd)%typ == "chandeg" .or. ob(icmd)%typ == "res") then
+            mf6swatp_next_object = icmd
+            return
+          end if
+        end if
           
         if (ob(icmd)%typ == "hru" .or. ob(icmd)%typ == "ru") then
           !! hru and ru can have hyrdographs that lag into next day
@@ -433,6 +447,12 @@
         icmd = ob(icmd)%cmd_next
         
       end do
+
+      !! MF6SWATp: no channel or reservoir at all; the end-of-day work below belongs to the routing part
+      if (mf6swatp_part == mf6swatp_part_land) then
+        mf6swatp_next_object = 0
+        return
+      end if
 
       !! write object output for entire simulation
       call obj_output
